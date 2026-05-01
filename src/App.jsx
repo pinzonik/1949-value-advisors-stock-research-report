@@ -18,7 +18,7 @@ async function callAI(msgs, tokens, tools) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), REQ_TIMEOUT_MS);
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+const res = await fetch("/api/chat", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ctrl.signal
     });
     const d = await res.json();
