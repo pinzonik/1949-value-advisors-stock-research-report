@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 
-const MODEL = "claude-sonnet-4-20250514";
+const MODEL = "claude-sonnet-4-5";
 const NAV = "#0B1F3A", NAV3 = "#1A3060", NAVL = "#EEF2F8", NAVM = "#C8D5E8";
 const WHT = "#FFFFFF", OFF = "#F7F9FC", BRD = "#D6DEE9";
 const TXT = "#0B1F3A", TXTM = "#3D5270", TXTL = "#7A90AE";
