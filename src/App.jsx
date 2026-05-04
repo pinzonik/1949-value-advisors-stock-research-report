@@ -521,7 +521,7 @@ export default function App() {
     const c=getC(t,"mgmt"); if(c){setMgmt(c);return;}
     setMgmt({mgmt:null,loading:true});
     if(!begin(t,"mgmt"))return;
-    callAISearch([{role:"user",content:"Who are the current CEO, CFO, President, and other top executives of "+t+" as of 2026? List their names and titles."}],300)
+    setTimeout(function(){if(!live(t))return;callAISearch([{role:"user",content:"Who are the current CEO, CFO, President, and other top executives of "+t+" as of 2026? List their names and titles."}],300)
       .then(function(searchText){
         return callAI([{role:"user",content:"Based on this info about "+t+" executives:\n"+searchText+"\n\nReturn ONLY a JSON array. No backticks. No prose. Example: [{name:\"Jane Smith\",title:\"CEO\",tenure:\"3 yrs\",ownership:\"0.1%\",background:\"Brief background\",assessment:\"1949 view\"}]"}],500);
       })
@@ -537,7 +537,7 @@ export default function App() {
         }catch(e2){if(live(t))setMgmt({mgmt:{error:"Parse error: "+String(e2.message)},loading:false});}
       })
       .catch(function(e){if(live(t))setMgmt({mgmt:{error:String(e)},loading:false});})
-      .finally(function(){end(t,"mgmt");});
+      .finally(function(){end(t,"mgmt");});},1200);
   };
 
   const analyze=t=>{
