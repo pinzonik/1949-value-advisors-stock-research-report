@@ -456,7 +456,7 @@ export default function App() {
     const c=getC(t,"hist"); if(c){setHist(c);return;}
     setHist({rows:null,loading:true});
     if(!begin(t,"hist"))return;
-    callAI([{role:"user",content:"Return ONLY a JSON array, no backticks, no markdown, no explanation. 5 most recent years for "+t+". Format: [{year:2024,revenue:\"46B\",netIncome:\"11B\",eps:\"2.60\",fcf:\"8B\",roic:\"31%\"}]"}],600)
+    setTimeout(function(){if(!live(t))return;callAI([{role:"user",content:"Return ONLY a JSON array, no backticks, no markdown, no explanation. 5 most recent years for "+t+". Format: [{year:2024,revenue:\"46B\",netIncome:\"11B\",eps:\"2.60\",fcf:\"8B\",roic:\"31%\"}]"}],600)
       .then(text=>{
         try{
           let c=cleanJSON(text);
@@ -473,7 +473,7 @@ export default function App() {
         }
       })
       .catch(err=>{if(live(t))setHist({rows:{error:String(err.message||err)},loading:false});})
-      .finally(()=>end(t,"hist"));
+      .finally(()=>end(t,"hist"));},300);
   };
   const fetchBal=t=>{
     const c=getC(t,"bal"); if(c){setBal(c);return;}
@@ -503,19 +503,19 @@ export default function App() {
     const c=getC(t,"tenk"); if(c){setTenk(c);return;}
     setTenk({result:null,verdict:null,loading:true,error:null});
     if(!begin(t,"tenk"))return;
-    callAI([{role:"user",content:"10-K note on "+t+". Sections: **Filing Overview**, **Valuation**, **Key Risks**, **Bottom Line**. End: VERDICT: Undervalued|Fairly Valued|Overvalued."}],700)
+    setTimeout(function(){if(!live(t))return;callAI([{role:"user",content:"10-K note on "+t+". Sections: **Filing Overview**, **Valuation**, **Key Risks**, **Bottom Line**. End: VERDICT: Undervalued|Fairly Valued|Overvalued."}],700)
       .then(r=>{const n={result:r,verdict:verdict(r),loading:false,error:null};putC(t,"tenk",n);if(live(t))setTenk(n);})
       .catch(e=>{if(live(t))setTenk({result:null,verdict:null,loading:false,error:e.message});})
-      .finally(()=>end(t,"tenk"));
+      .finally(()=>end(t,"tenk"));},500);
   };
   const fetchNews=t=>{
     const c=getC(t,"news"); if(c){setNews(c);return;}
     setNews({result:null,loading:true,error:null});
     if(!begin(t,"news"))return;
-    callAISearch([{role:"user",content:"Latest news on "+t+" in 2026. Focus on new products, strategic moves, competition, and market positioning. Skip earnings numbers. Sections: **New Products & Innovation**, **Strategic Moves**, **Competitive Landscape**, **1949 Take**."}],600)
+    setTimeout(function(){if(!live(t))return;callAISearch([{role:"user",content:"Latest news on "+t+" in 2026. Focus on new products, strategic moves, competition, and market positioning. Skip earnings numbers. Sections: **New Products & Innovation**, **Strategic Moves**, **Competitive Landscape**, **1949 Take**."}],600)
       .then(r=>{const n={result:r,loading:false,error:null};putC(t,"news",n);if(live(t))setNews(n);})
       .catch(e=>{if(live(t))setNews({result:null,loading:false,error:e.message});})
-      .finally(()=>end(t,"news"));
+      .finally(()=>end(t,"news"));},800);
   };
   const fetchMgmt=t=>{
     const c=getC(t,"mgmt"); if(c){setMgmt(c);return;}
