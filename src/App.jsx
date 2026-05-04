@@ -355,11 +355,11 @@ export default function App() {
     if (!begin(t, "core")) return;
     const prompt = "For stock ticker " + t + ", return a JSON object with exactly these 4 keys:\n" +
       "1. overview: research note with scorecard integers 1-10 (each on own line: Valuation: 7), then VERDICT: Undervalued|Fairly Valued|Overvalued, then sections **Overview** **Valuation & Moat** **Bottom Line**\n" +
-      "2. history: array of last 5 years [{year,revenue,netIncome,eps,fcf,roic}]\n" +
-      "3. balance: {metrics:{totalAssets,totalDebt,netCash,netCashPositive,currentRatio,debtEquity,bookValuePerShare},rows:[last 2 years {year,totalAssets,totalLiabilities,shareholderEquity,totalDebt,cashEquiv,currentRatio}]}\n" +
+      "2. history: array of last 10 years newest first [{year,revenue,netIncome,eps,fcf,roic}]\n" +
+      "3. balance: {metrics:{totalAssets,totalDebt,netCash,netCashPositive,currentRatio,debtEquity,bookValuePerShare},rows:[last 5 years newest first {year,totalAssets,totalLiabilities,shareholderEquity,totalDebt,cashEquiv,currentRatio}]}\n" +
       "4. management: array of top 4 current executives [{name,title,tenure,ownership,background,assessment}]\n" +
       "Return ONLY raw JSON. No backticks. No markdown outside the overview text.";
-    callAI([{ role: "user", content: prompt }], 1800)
+    callAI([{ role: "user", content: prompt }], 2200)
       .then(text => {
         try {
           const c = cleanJSON(text);
