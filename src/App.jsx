@@ -486,18 +486,7 @@ export default function App() {
     const c=getC(t,"ov"); if(c){setOv(c);return;}
     setOv({result:null,scores:{},verdict:null,loading:true,error:null});
     if(!begin(t,"ov"))return;
-    callAI([{role:"user",content:"Scorecard for "+t+" integers 1-10:
-Valuation: <n>
-Free Cash Flow: <n>
-Returns on Capital: <n>
-Capital Structure: <n>
-Management: <n>
-Moat: <n>
-Catalysts: <n>
-Overall: <n>
-VERDICT: Undervalued|Fairly Valued|Overvalued
-
-3 short sections: **Overview**, **Valuation & Moat**, **Bottom Line**."}],700)
+    callAI([{role:"user",content:"Scorecard for "+t+" integers 1-10:\nValuation: <n>\nFree Cash Flow: <n>\nReturns on Capital: <n>\nCapital Structure: <n>\nManagement: <n>\nMoat: <n>\nCatalysts: <n>\nOverall: <n>\nVERDICT: Undervalued|Fairly Valued|Overvalued\n\n3 short sections: **Overview**, **Valuation & Moat**, **Bottom Line**."}],700)
       .then(r=>{const n={result:r,scores:parseScores(r),verdict:verdict(r),loading:false,error:null};putC(t,"ov",n);if(live(t))setOv(n);})
       .catch(e=>{if(live(t))setOv({result:null,scores:{},verdict:null,loading:false,error:e.message});})
       .finally(()=>end(t,"ov"));
