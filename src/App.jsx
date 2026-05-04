@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 
-const MODEL = "claude-sonnet-4-5";
-const MODEL_FAST = "claude-haiku-4-5-20251001";
+const MODEL = "claude-haiku-4-5-20251001";
 const NAV = "#0B1F3A", NAV3 = "#1A3060", NAVL = "#EEF2F8", NAVM = "#C8D5E8";
 const WHT = "#FFFFFF", OFF = "#F7F9FC", BRD = "#D6DEE9";
 const TXT = "#0B1F3A", TXTM = "#3D5270", TXTL = "#7A90AE";
@@ -12,8 +11,8 @@ const DF = "'Playfair Display',Georgia,serif", BF = "'Lato',sans-serif";
 const SYS = `CIO at 1949 Value Advisors LLC. Institutional equity research in flowing prose. No bullets, lists, emoji, or filler. **Bold Header** for sections.`;
 
 const REQ_TIMEOUT_MS = 90000;
-async function callAI(msgs, tokens, tools, model) {
-  const body = { model: model||MODEL, max_tokens: tokens, system: SYS, messages: msgs };
+async function callAI(msgs, tokens, tools) {
+  const body = { model: MODEL, max_tokens: tokens, system: SYS, messages: msgs };
   if (tools) body.tools = tools;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), REQ_TIMEOUT_MS);
@@ -33,12 +32,12 @@ async function callAI(msgs, tokens, tools, model) {
 }
 
 const SEARCH_TOOL = [{ type: "web_search_20250305", name: "web_search" }];
-async function callAISearch(msgs, tokens, tools, model) {
+async function callAISearch(msgs, tokens) {
   try {
-    const text = await callAI(msgs, tokens, SEARCH_TOOL, model);
+    const text = await callAI(msgs, tokens, SEARCH_TOOL);
     if (text.trim()) return text;
   } catch {}
-  return callAI(msgs, tokens, null, model);
+  return callAI(msgs, tokens);
 }
 
 const SCORE_REGEXES = [
@@ -175,7 +174,7 @@ function Chat({ context }) {
     const u={role:"user",content:inp},up=[...msgs,u];
     setMsgs(up);setInp("");setLoading(true);
     try{
-      const r=await callAI([{role:"user",content:"Context:\n"+context},{role:"assistant",content:"Understood."},...up],300,null,MODEL_FAST);
+      const r=await callAI([{role:"user",content:"Context:\n"+context},{role:"assistant",content:"Understood."},...up],300);
       if(mountedRef.current)setMsgs(prev=>[...prev,{role:"assistant",content:r}]);
     }
     catch(e){ if(mountedRef.current)setMsgs(prev=>[...prev,{role:"assistant",content:"Error: "+e.message}]); }
@@ -199,61 +198,14 @@ function Chat({ context }) {
   </div>;
 }
 
-// Module-level cache so re-analyzing same ticker in session avoids re-fetching price
-const priceCache={};
-
 function PriceWidget({ ticker }) {
-  const [data,setData]=useState(()=>priceCache[ticker]||null);
-  const [loading,setLoading]=useState(()=>!priceCache[ticker]);
-  const [failed,setFailed]=useState(false);
-  const tickerRef=useRef(ticker);
-  tickerRef.current=ticker;
-  const inFlight=useRef(false);
-
-  const load=t=>{
-    if(priceCache[t]){setData(priceCache[t]);setLoading(false);setFailed(false);return;}
-    if(inFlight.current)return;
-    inFlight.current=true;
-    setLoading(true);setData(null);setFailed(false);
-    callAISearch([{role:"user",content:"What is the current stock price of "+t+" and the price 1 year ago? Respond ONLY with JSON: {price:NUMBER,prior:NUMBER}"}],120,null,MODEL_FAST)
-      .then(function(text){
-        try{
-          var c=cleanJSON(text),s=c.indexOf("{"),e=c.lastIndexOf("}");
-          if(s<0||e<0)throw 0;
-          var o=JSON.parse(c.slice(s,e+1));
-          var np=parseFloat(String(o.price).replace(/[^0-9.-]/g,""));
-          var nq=parseFloat(String(o.prior).replace(/[^0-9.-]/g,""));
-          if(!Number.isFinite(np)||!Number.isFinite(nq))throw 0;
-          priceCache[t]={price:np,prior:nq};
-          if(tickerRef.current===t)setData(priceCache[t]);
-        }catch(err){ if(tickerRef.current===t)setFailed(true); }
-      })
-      .catch(function(){ if(tickerRef.current===t)setFailed(true); })
-      .finally(function(){ inFlight.current=false; if(tickerRef.current===t)setLoading(false); });
-  };
-
-  useEffect(()=>{
-    inFlight.current=false;
-    load(ticker);
-  },[ticker]);
-
-  const price=data?data.price:null, prior=data?data.prior:null;
-  const dollarChg=price!=null&&prior!=null?(price-prior):null;
-  const pctChg=dollarChg!=null&&prior?((dollarChg)/prior*100):null;
-  const up=dollarChg!=null&&dollarChg>=0, lc=up?GRN:RED;
-
   return <Box>
-    <SectionLabel>{ticker} · Live Price</SectionLabel>
-    {loading?<div style={{ display:"flex",alignItems:"center",gap:8,color:TXTL,fontFamily:BF }}><Spinner/><span>Fetching current price for {ticker}...</span></div>
-    :price!=null?<div style={{ display:"flex",alignItems:"baseline",gap:14,flexWrap:"wrap" }}>
-      <span style={{ fontSize:36,fontWeight:700,fontFamily:DF,color:NAV }}>${price.toFixed(2)}</span>
-      {dollarChg!=null&&<span style={{ fontSize:15,fontWeight:700,color:lc,fontFamily:BF }}>{up?"+":"−"}${Math.abs(dollarChg).toFixed(2)}{pctChg!=null&&" ("+(up?"+":"")+pctChg.toFixed(1)+"%)"} 1Y</span>}
+    <SectionLabel>{ticker} · Price</SectionLabel>
+    <div style={{ display:"flex",gap:12,flexWrap:"wrap",alignItems:"center" }}>
+      <a href={"https://finance.yahoo.com/quote/"+encodeURIComponent(ticker)} target="_blank" rel="noreferrer" style={{ background:NAV,color:WHT,borderRadius:7,padding:"9px 18px",fontSize:13,fontWeight:700,fontFamily:BF,textDecoration:"none" }}>Yahoo Finance →</a>
+      <a href={"https://www.tradingview.com/symbols/"+encodeURIComponent(ticker)} target="_blank" rel="noreferrer" style={{ background:OFF,color:NAV,border:"1px solid "+BRD,borderRadius:7,padding:"9px 18px",fontSize:13,fontWeight:700,fontFamily:BF,textDecoration:"none" }}>TradingView →</a>
     </div>
-    :<div style={{ display:"flex",alignItems:"center",gap:10,flexWrap:"wrap" }}>
-      <p style={{ fontSize:13,color:TXTL,fontFamily:BF,margin:0 }}>Price unavailable.</p>
-      {failed&&<button onClick={()=>load(ticker)} disabled={loading} style={{ background:NAV,color:WHT,border:"none",borderRadius:6,padding:"5px 12px",fontSize:11,fontWeight:700,fontFamily:BF,cursor:loading?"not-allowed":"pointer",opacity:loading?0.55:1 }}>Retry</button>}
-    </div>}
-    <p style={{ fontSize:11,color:TXTL,fontFamily:BF,marginTop:10 }}>Web search estimate. Verify: <a href={"https://finance.yahoo.com/quote/"+encodeURIComponent(ticker)} target="_blank" rel="noreferrer" style={{ color:BLU }}>Yahoo Finance</a> · <a href={"https://www.tradingview.com/symbols/"+encodeURIComponent(ticker)} target="_blank" rel="noreferrer" style={{ color:BLU }}>TradingView</a></p>
+    <p style={{ fontSize:11,color:TXTL,fontFamily:BF,marginTop:10 }}>Click above for live price & charts.</p>
   </Box>;
 }
 
@@ -338,7 +290,7 @@ function YearDetail({ ticker, row }) {
     if(yearCache[key]){setTxt(yearCache[key]);setLoading(false);return;}
     setTxt(null);setLoading(true);
     let mounted=true;
-    callAI([{role:"user",content:`${ticker} FY${row.year}. Rev ${row.revenue}|NI ${row.netIncome}|EPS ${row.eps}|FCF ${row.fcf}|ROIC ${row.roic}. Sections: **Year in Review**, **FCF Quality**, **Capital Allocation**, **Key Events**, **1949 Verdict**.`}],400,null,MODEL_FAST)
+    callAI([{role:"user",content:`${ticker} FY${row.year}. Rev ${row.revenue}|NI ${row.netIncome}|EPS ${row.eps}|FCF ${row.fcf}|ROIC ${row.roic}. Sections: **Year in Review**, **FCF Quality**, **Capital Allocation**, **Key Events**, **1949 Verdict**.`}],400)
       .then(r=>{yearCache[key]=r;if(mounted)setTxt(r);})
       .catch(e=>{if(mounted)setTxt("Error: "+e.message);})
       .finally(()=>{if(mounted)setLoading(false);});
@@ -495,7 +447,7 @@ export default function App() {
     const c=getC(t,"hist"); if(c){setHist(c);return;}
     setHist({rows:null,loading:true});
     if(!begin(t,"hist"))return;
-    callAI([{role:"user",content:"JSON array only for "+t+", 10yr annual newest first. Schema:[{year:2024,revenue:\"94B\",netIncome:\"23B\",eps:\"5.42\",fcf:\"18B\",roic:\"18%\"}]"}],700,null,MODEL_FAST)
+    callAI([{role:"user",content:"JSON array only for "+t+", 10yr annual newest first. Schema:[{year:2024,revenue:\"94B\",netIncome:\"23B\",eps:\"5.42\",fcf:\"18B\",roic:\"18%\"}]"}],700)
       .then(text=>{
         try{
           let c=cleanJSON(text);
@@ -519,7 +471,7 @@ export default function App() {
     setBal({data:null,loading:true});
     if(!begin(t,"bal"))return;
     setTimeout(()=>{
-    callAI([{role:"user",content:"Balance sheet JSON for "+t+". ONLY raw JSON: {\"metrics\":{\"totalAssets\":\"X\",\"totalDebt\":\"X\",\"netCash\":\"X\",\"netCashPositive\":true,\"currentRatio\":\"X\",\"debtEquity\":\"X\",\"bookValuePerShare\":\"X\"},\"rows\":[{\"year\":2024,\"totalAssets\":\"X\",\"totalLiabilities\":\"X\",\"shareholderEquity\":\"X\",\"totalDebt\":\"X\",\"cashEquiv\":\"X\",\"currentRatio\":\"X\"}],\"analysis\":\"2 sentence balance sheet assessment.\"}. 5 years newest first."}],400,null,MODEL_FAST)
+    callAI([{role:"user",content:"Balance sheet JSON for "+t+". ONLY raw JSON: {\"metrics\":{\"totalAssets\":\"X\",\"totalDebt\":\"X\",\"netCash\":\"X\",\"netCashPositive\":true,\"currentRatio\":\"X\",\"debtEquity\":\"X\",\"bookValuePerShare\":\"X\"},\"rows\":[{\"year\":2024,\"totalAssets\":\"X\",\"totalLiabilities\":\"X\",\"shareholderEquity\":\"X\",\"totalDebt\":\"X\",\"cashEquiv\":\"X\",\"currentRatio\":\"X\"}],\"analysis\":\"2 sentence balance sheet assessment.\"}. 5 years newest first."}],400)
       .then(text=>{
         try{
           const c=cleanJSON(text);
@@ -560,7 +512,7 @@ export default function App() {
     const c=getC(t,"mgmt"); if(c){setMgmt(c);return;}
     setMgmt({mgmt:null,loading:true});
     if(!begin(t,"mgmt"))return;
-    callAI([{role:"user",content:`Senior mgmt of ${t}. ONLY raw JSON array, no prose. Schema: [{"name":"Full Name","title":"Title","tenure":"X yrs","ownership":"X%","background":"1-2 sent","assessment":"1949 view, 1 sent"}]`}],600,null,MODEL_FAST)
+    callAI([{role:"user",content:`Senior mgmt of ${t}. ONLY raw JSON array, no prose. Schema: [{"name":"Full Name","title":"Title","tenure":"X yrs","ownership":"X%","background":"1-2 sent","assessment":"1949 view, 1 sent"}]`}],600)
       .then(text=>{
         let c=cleanJSON(text);
         if(!c.startsWith("["))c=c.slice(c.indexOf("["));
