@@ -456,7 +456,7 @@ export default function App() {
     const c=getC(t,"hist"); if(c){setHist(c);return;}
     setHist({rows:null,loading:true});
     if(!begin(t,"hist"))return;
-    callAI([{role:"user",content:"JSON array only for "+t+", 10yr annual newest first. Schema:[{year:2024,revenue:\"94B\",netIncome:\"23B\",eps:\"5.42\",fcf:\"18B\",roic:\"18%\"}]"}],700)
+    callAI([{role:"user",content:"Return ONLY a JSON array, no backticks, no markdown, no explanation. 5 most recent years for "+t+". Format: [{year:2024,revenue:\"46B\",netIncome:\"11B\",eps:\"2.60\",fcf:\"8B\",roic:\"31%\"}]"}],600)
       .then(text=>{
         try{
           let c=cleanJSON(text);
@@ -480,7 +480,7 @@ export default function App() {
     setBal({data:null,loading:true});
     if(!begin(t,"bal"))return;
     setTimeout(()=>{
-    callAI([{role:"user",content:"Balance sheet JSON for "+t+". ONLY raw JSON: {\"metrics\":{\"totalAssets\":\"X\",\"totalDebt\":\"X\",\"netCash\":\"X\",\"netCashPositive\":true,\"currentRatio\":\"X\",\"debtEquity\":\"X\",\"bookValuePerShare\":\"X\"},\"rows\":[{\"year\":2024,\"totalAssets\":\"X\",\"totalLiabilities\":\"X\",\"shareholderEquity\":\"X\",\"totalDebt\":\"X\",\"cashEquiv\":\"X\",\"currentRatio\":\"X\"}],\"analysis\":\"2 sentence balance sheet assessment.\"}. 3 years newest first."}],500)
+    callAI([{role:"user",content:"Balance sheet JSON for "+t+". ONLY raw JSON: {\"metrics\":{\"totalAssets\":\"X\",\"totalDebt\":\"X\",\"netCash\":\"X\",\"netCashPositive\":true,\"currentRatio\":\"X\",\"debtEquity\":\"X\",\"bookValuePerShare\":\"X\"},\"rows\":[{\"year\":2024,\"totalAssets\":\"X\",\"totalLiabilities\":\"X\",\"shareholderEquity\":\"X\",\"totalDebt\":\"X\",\"cashEquiv\":\"X\",\"currentRatio\":\"X\"}],\"analysis\":\"2 sentence balance sheet assessment.\"}. Return 2 years only. No backticks, no markdown, just raw JSON."}],600)
       .then(text=>{
         try{
           const c=cleanJSON(text);
@@ -521,7 +521,7 @@ export default function App() {
     const c=getC(t,"mgmt"); if(c){setMgmt(c);return;}
     setMgmt({mgmt:null,loading:true});
     if(!begin(t,"mgmt"))return;
-    callAISearch([{role:"user",content:"List the current executives of "+t+" (CEO, CFO, COO, etc) as of 2026. For each person write one line: NAME | TITLE | TENURE | OWNERSHIP | BACKGROUND | ASSESSMENT. No JSON, just pipe-separated lines."}],500)
+    callAISearch([{role:"user",content:"Current executive team of "+t+" in 2026. For each of the top 4 executives, write exactly: NAME | TITLE | YEARS_AT_COMPANY | SHARE_OWNERSHIP | one sentence background | one sentence assessment. One executive per line."}],400)
       .then(text=>{
         try{
           var lines=text.split("\n").map(function(l){return l.trim();}).filter(function(l){return l.indexOf("|")>-1;});
