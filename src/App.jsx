@@ -39,6 +39,27 @@ function cleanJSON(t) {
   return s;
 }
 
+// Robust JSON extractor: strips prose before/after, fixes unquoted keys
+function extractJSON(text, startChar, endChar) {
+  if (!text) return null;
+  try {
+    const clean = cleanJSON(text);
+    const s = clean.indexOf(startChar);
+    const e = clean.lastIndexOf(endChar);
+    if (s < 0 || e <= s) return null;
+    const slice = clean.slice(s, e + 1);
+    // Try strict JSON first
+    try { return JSON.parse(slice); } catch(_) {}
+    // Fix unquoted keys
+    const fixed = slice.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
+    // Fix unquoted boolean-like strings that aren't true/false
+    try { return JSON.parse(fixed); } catch(_) {}
+    // Last resort: remove trailing commas before } or ]
+    const noTrailing = fixed.replace(/,\s*([}\]])/g, '$1');
+    return JSON.parse(noTrailing);
+  } catch(e) { return null; }
+}
+
 const SCORE_RE = [
   ["valuation", /valuation[^\d]*(\d+)/im], ["fcf", /free cash flow[^\d]*(\d+)/im],
   ["returns", /returns on capital[^\d]*(\d+)/im], ["balance", /capital structure[^\d]*(\d+)/im],
@@ -226,17 +247,26 @@ function HistoryTab({ ticker, core, onRetry }) {
 }
 
 function BalanceTab({ ticker, core, onRetry }) {
-  if (core.loading) return <LoadingBox label="Loading balance sheet..." />;
+  // While the main core call is still running, show loading
+  if (core.loading) return <LoadingBox label={"Loading balance sheet for " + ticker + "..."} />;
   if (core.error) return <ErrorBox msg={core.error} onRetry={onRetry} />;
-  if (!core.balance) return <ErrorBox msg="Balance sheet data unavailable." onRetry={onRetry} />;
+
+  // balance came back null — parse failed silently, offer a dedicated retry
+  if (!core.balance) {
+    return <ErrorBox msg={"Balance sheet data could not be parsed. This sometimes happens on the first load — click Retry to re-fetch."} onRetry={onRetry} />;
+  }
   if (core.balance.error) return <ErrorBox msg={core.balance.error} onRetry={onRetry} />;
+
   const { metrics, rows } = core.balance;
+  if (!metrics || !rows) return <ErrorBox msg="Balance sheet structure incomplete. Click Retry." onRetry={onRetry} />;
+
+  const safeFloat = v => parseFloat(String(v).replace(/[^0-9.\-]/g, "")) || 0;
   const cards = [
     { label: "Total Assets", value: metrics.totalAssets, color: BLU, bg: BLUB },
     { label: "Total Debt", value: metrics.totalDebt, color: RED, bg: REDB },
     { label: "Net Cash / (Debt)", value: metrics.netCash, color: metrics.netCashPositive ? GRN : RED, bg: metrics.netCashPositive ? GRNB : REDB },
-    { label: "Current Ratio", value: metrics.currentRatio, color: parseFloat(metrics.currentRatio) >= 1.5 ? GRN : parseFloat(metrics.currentRatio) >= 1 ? AMB : RED, bg: parseFloat(metrics.currentRatio) >= 1.5 ? GRNB : parseFloat(metrics.currentRatio) >= 1 ? AMBB : REDB },
-    { label: "Debt / Equity", value: metrics.debtEquity, color: parseFloat(metrics.debtEquity) <= 1 ? GRN : parseFloat(metrics.debtEquity) <= 2 ? AMB : RED, bg: parseFloat(metrics.debtEquity) <= 1 ? GRNB : parseFloat(metrics.debtEquity) <= 2 ? AMBB : REDB },
+    { label: "Current Ratio", value: metrics.currentRatio, color: safeFloat(metrics.currentRatio) >= 1.5 ? GRN : safeFloat(metrics.currentRatio) >= 1 ? AMB : RED, bg: safeFloat(metrics.currentRatio) >= 1.5 ? GRNB : safeFloat(metrics.currentRatio) >= 1 ? AMBB : REDB },
+    { label: "Debt / Equity", value: metrics.debtEquity, color: safeFloat(metrics.debtEquity) <= 1 ? GRN : safeFloat(metrics.debtEquity) <= 2 ? AMB : RED, bg: safeFloat(metrics.debtEquity) <= 1 ? GRNB : safeFloat(metrics.debtEquity) <= 2 ? AMBB : REDB },
     { label: "Book Value / Share", value: metrics.bookValuePerShare, color: NAV, bg: NAVL },
   ];
   return <>
@@ -254,7 +284,7 @@ function BalanceTab({ ticker, core, onRetry }) {
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: BF }}>
           <thead><tr style={{ background: NAV }}>{["Year", "Total Assets", "Total Liabilities", "Equity", "Total Debt", "Cash", "Current Ratio"].map((h, i) => <th key={i} style={{ padding: "10px 14px", textAlign: i === 0 ? "left" : "right", fontSize: 10, fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", color: NAVM, whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
-          <tbody>{rows.map((row, i) => <tr key={row.year} style={{ background: i % 2 === 0 ? WHT : OFF }}>
+          <tbody>{rows.map((row, i) => <tr key={row.year || i} style={{ background: i % 2 === 0 ? WHT : OFF }}>
             {["year", "totalAssets", "totalLiabilities", "shareholderEquity", "totalDebt", "cashEquiv", "currentRatio"].map((k, ci) => <td key={k} style={{ padding: "10px 14px", textAlign: ci === 0 ? "left" : "right", color: ci === 0 ? NAV : TXTM, fontWeight: ci === 0 ? 700 : 400, borderBottom: "1px solid " + BRD, whiteSpace: "nowrap", fontFamily: ci === 0 ? DF : BF }}>{row[k] || "N/A"}</td>)}
           </tr>)}</tbody>
         </table>
@@ -332,9 +362,7 @@ export default function App() {
   const [inpInvalid, setInpInvalid] = useState(false);
   const [ovTab, setOvTab] = useState("text");
 
-  // MERGED: overview + history + balance all from one call
   const [core, setCore] = useState({ loading: false, error: null, overview: null, history: null, balance: null });
-  // ON-DEMAND: only load when tab clicked
   const [tenk, setTenk] = useState({ result: null, loading: false, error: null, tab: "text", setTab: null });
   const [news, setNews] = useState({ result: null, loading: false, error: null });
   const [mgmt, setMgmt] = useState({ mgmt: null, loading: false });
@@ -349,59 +377,60 @@ export default function App() {
   const begin = (t, k) => { const f = t + ":" + k; if (inFlight.current[f]) return false; inFlight.current[f] = true; return true; };
   const end = (t, k) => { delete inFlight.current[t + ":" + k]; };
 
-  // ONE merged call using delimiters — avoids JSON escaping issues with prose
   const fetchCore = t => {
+    // Bust cache on retry so fresh data is fetched
     const cached = getC(t, "core");
     if (cached) { setCore(cached); return; }
     setCore({ loading: true, error: null, overview: null, history: null, balance: null });
     if (!begin(t, "core")) return;
-    const prompt = "Analyze " + t + " using 1949 value investing criteria (margin of safety, FCF quality, ROIC, moat, management). Output EXACTLY in this format:\n\n===OVERVIEW===\nValuation: N\nFree Cash Flow: N\nReturns on Capital: N\nCapital Structure: N\nManagement: N\nMoat: N\nCatalysts: N\nOverall: N\nVERDICT: Fairly Valued\n\n**Overview**\n2-3 sentences\n\n**Valuation & Moat**\n2-3 sentences\n\n**Bottom Line**\n1-2 sentences\n\n===HISTORY===\n[{\"year\":2024,\"revenue\":\"X\",\"netIncome\":\"X\",\"eps\":\"X\",\"fcf\":\"X\",\"roic\":\"X\"}]\nProvide 10 years newest first with real values. No backticks.\n\n===BALANCE===\n{\"metrics\":{\"totalAssets\":\"X\",\"totalDebt\":\"X\",\"netCash\":\"X\",\"netCashPositive\":true,\"currentRatio\":\"X\",\"debtEquity\":\"X\",\"bookValuePerShare\":\"X\"},\"rows\":[{\"year\":2024,\"totalAssets\":\"X\",\"totalLiabilities\":\"X\",\"shareholderEquity\":\"X\",\"totalDebt\":\"X\",\"cashEquiv\":\"X\",\"currentRatio\":\"X\"}]}\nProvide 5 years newest first. No backticks.\n\n===MANAGEMENT===\n[{\"name\":\"X\",\"title\":\"X\",\"tenure\":\"X\",\"ownership\":\"X\",\"background\":\"1 sentence\",\"assessment\":\"1 sentence\"}]\nTop 4 current executives. No backticks.";
+
+    const prompt = "Analyze " + t + " using 1949 value investing criteria (margin of safety, FCF quality, ROIC, moat, management). Output EXACTLY in this format with no extra text outside the sections:\n\n===OVERVIEW===\nValuation: N\nFree Cash Flow: N\nReturns on Capital: N\nCapital Structure: N\nManagement: N\nMoat: N\nCatalysts: N\nOverall: N\nVERDICT: Fairly Valued\n\n**Overview**\n2-3 sentences.\n\n**Valuation & Moat**\n2-3 sentences.\n\n**Bottom Line**\n1-2 sentences.\n\n===HISTORY===\n[{\"year\":2024,\"revenue\":\"$46B\",\"netIncome\":\"$10B\",\"eps\":\"$2.50\",\"fcf\":\"$9B\",\"roic\":\"12%\"}]\n10 years newest first. Only the JSON array, nothing else.\n\n===BALANCE===\n{\"metrics\":{\"totalAssets\":\"$100B\",\"totalDebt\":\"$35B\",\"netCash\":\"-$20B\",\"netCashPositive\":false,\"currentRatio\":\"1.2\",\"debtEquity\":\"2.5\",\"bookValuePerShare\":\"$18.00\"},\"rows\":[{\"year\":2024,\"totalAssets\":\"$100B\",\"totalLiabilities\":\"$75B\",\"shareholderEquity\":\"$25B\",\"totalDebt\":\"$35B\",\"cashEquiv\":\"$15B\",\"currentRatio\":\"1.2\"}]}\n5 years newest first. Only the JSON object, nothing else.\n\n===MANAGEMENT===\n[{\"name\":\"James Quincey\",\"title\":\"CEO\",\"tenure\":\"8 years\",\"ownership\":\"0.04%\",\"background\":\"One sentence bio.\",\"assessment\":\"One sentence 1949 take.\"}]\nTop 4 executives. Only the JSON array, nothing else.";
+
     callAI([{ role: "user", content: prompt }], 2200)
       .then(text => {
         try {
-          const sec = function(key) {
-            const start = text.indexOf("===" + key + "===");
+          const sec = key => {
+            const marker = "===" + key + "===";
+            const start = text.indexOf(marker);
             if (start < 0) return "";
             const after = text.indexOf("\n", start) + 1;
-            const end = text.indexOf("===", after);
-            return end < 0 ? text.slice(after).trim() : text.slice(after, end).trim();
+            const nextMarker = text.indexOf("===", after);
+            return nextMarker < 0 ? text.slice(after).trim() : text.slice(after, nextMarker).trim();
           };
+
           const ovText = sec("OVERVIEW");
-          if (!ovText) throw new Error("No OVERVIEW section found");
-          // Parse history JSON
-          // Lenient JS eval parser - handles unquoted keys from Haiku
-          const safeEval = function(str, startChar, endChar) {
-            try {
-              const s = str.indexOf(startChar), e = str.lastIndexOf(endChar);
-              if (s < 0 || e <= s) return null;
-              const slice = str.slice(s, e + 1);
-              // First try strict JSON
-              try { return JSON.parse(slice); } catch(_) {}
-              // Fallback: quote unquoted keys
-              const fixed = slice.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
-              return JSON.parse(fixed);
-            } catch(e) { return null; }
-          };
+          if (!ovText) throw new Error("No OVERVIEW section — raw: " + text.slice(0, 120));
+
+          // History: robust extraction
           let histRows = null;
           try {
-            const hRaw = cleanJSON(sec("HISTORY"));
-            const result = safeEval(hRaw, "[", "]");
-            if (Array.isArray(result) && result.length) histRows = result;
-          } catch(e) { histRows = null; }
-          // Parse balance
+            const hRaw = sec("HISTORY");
+            const parsed = extractJSON(hRaw, "[", "]");
+            if (Array.isArray(parsed) && parsed.length > 0) histRows = parsed;
+          } catch(_) {}
+
+          // Balance: two-pass extraction — try the section first, then scan whole text
           let balData = null;
           try {
-            const bRaw = cleanJSON(sec("BALANCE"));
-            const result = safeEval(bRaw, "{", "}");
-            if (result && result.metrics) balData = result;
-          } catch(e) { balData = null; }
-          // Parse management
+            const bRaw = sec("BALANCE");
+            // Pass 1: section
+            let parsed = extractJSON(bRaw, "{", "}");
+            // Pass 2: if section extraction failed, scan entire response for balance JSON
+            if (!parsed || !parsed.metrics) {
+              const fullScan = extractJSON(text.slice(text.indexOf("===BALANCE===")), "{", "}");
+              if (fullScan && fullScan.metrics) parsed = fullScan;
+            }
+            if (parsed && parsed.metrics && parsed.rows) balData = parsed;
+          } catch(_) {}
+
+          // Management
           let mgmtData = null;
           try {
-            const mRaw = cleanJSON(sec("MANAGEMENT"));
-            const result = safeEval(mRaw, "[", "]");
-            if (Array.isArray(result) && result.length) mgmtData = result;
-          } catch(e) { mgmtData = null; }
+            const mRaw = sec("MANAGEMENT");
+            const parsed = extractJSON(mRaw, "[", "]");
+            if (Array.isArray(parsed) && parsed.length > 0) mgmtData = parsed;
+          } catch(_) {}
+
           const n = { loading: false, error: null, overview: ovText, history: histRows, balance: balData, management: mgmtData };
           putC(t, "core", n);
           if (live(t)) {
@@ -409,7 +438,7 @@ export default function App() {
             if (mgmtData) { const mn = { mgmt: mgmtData, loading: false }; putC(t, "mgmt", mn); setMgmt(mn); }
           }
         } catch (err) {
-          if (live(t)) setCore({ loading: false, error: err.message + " | raw: " + text.slice(0, 200), overview: null, history: null, balance: null });
+          if (live(t)) setCore({ loading: false, error: err.message, overview: null, history: null, balance: null });
         }
       })
       .catch(err => { if (live(t)) setCore({ loading: false, error: String(err.message), overview: null, history: null, balance: null }); })
@@ -451,11 +480,8 @@ export default function App() {
       callAISearch([{ role: "user", content: "Who are the current CEO, CFO, and top executives of " + t + " as of 2026? Include their names, titles, how long they have been in their role, and approximate share ownership." }], 350)
         .then(searchText => callAI([{ role: "user", content: "Based on this about " + t + " executives:\n" + searchText + "\n\nReturn ONLY a JSON array, no backticks: [{name,title,tenure,ownership,background,assessment}]" }], 500))
         .then(text => {
-          const c = cleanJSON(text);
-          const s = c.indexOf("["), e = c.lastIndexOf("]");
-          if (s < 0 || e < 0) throw new Error("No JSON array");
-          const parsed = JSON.parse(c.slice(s, e + 1));
-          if (!Array.isArray(parsed) || !parsed.length) throw new Error("Empty");
+          const parsed = extractJSON(text, "[", "]");
+          if (!Array.isArray(parsed) || !parsed.length) throw new Error("No valid management array");
           const n = { mgmt: parsed, loading: false };
           putC(t, "mgmt", n); if (live(t)) setMgmt(n);
         })
@@ -471,6 +497,12 @@ export default function App() {
     setTenk({ result: null, loading: false, error: null, tab: "text", setTab: v => setTenk(p => ({ ...p, tab: v })) });
     setNews({ result: null, loading: false, error: null });
     setMgmt({ mgmt: null, loading: false });
+    fetchCore(t);
+  };
+
+  // Retry clears cache so a fresh API call is made
+  const retryCore = t => {
+    if (cacheRef.current[t]) delete cacheRef.current[t].core;
     fetchCore(t);
   };
 
@@ -516,9 +548,9 @@ export default function App() {
             {TILES.map(t => <button key={t} onClick={() => { setInp(t); analyze(t); }} style={{ background: NAVL, color: NAV, border: "1px solid " + NAVM, borderRadius: 7, padding: "7px 16px", fontSize: 13, fontWeight: 700, fontFamily: BF, cursor: "pointer" }}>{t}</button>)}
           </div>
         </div>}
-        {ticker && tab === "overview" && <OverviewTab ticker={ticker} core={coreWithTab} onRetry={() => fetchCore(ticker)} />}
-        {ticker && tab === "history" && <HistoryTab ticker={ticker} core={core} onRetry={() => fetchCore(ticker)} />}
-        {ticker && tab === "balance" && <BalanceTab ticker={ticker} core={core} onRetry={() => fetchCore(ticker)} />}
+        {ticker && tab === "overview" && <OverviewTab ticker={ticker} core={coreWithTab} onRetry={() => retryCore(ticker)} />}
+        {ticker && tab === "history" && <HistoryTab ticker={ticker} core={core} onRetry={() => retryCore(ticker)} />}
+        {ticker && tab === "balance" && <BalanceTab ticker={ticker} core={core} onRetry={() => retryCore(ticker)} />}
         {ticker && tab === "tenk" && <TenKTab ticker={ticker} d={tenk} onRetry={() => fetchTenk(ticker)} />}
         {ticker && tab === "news" && <NewsTab ticker={ticker} d={news} onRetry={() => fetchNews(ticker)} />}
         {ticker && tab === "management" && <MgmtTab ticker={ticker} d={mgmt} onRetry={() => fetchMgmt(ticker)} />}
