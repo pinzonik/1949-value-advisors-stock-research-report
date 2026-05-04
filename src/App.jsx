@@ -538,6 +538,7 @@ export default function App() {
       .catch(err=>{if(live(t))setBal({data:{error:String(err.message||err)},loading:false});})
       .finally(()=>end(t,"bal"));
   };
+  const fetchTenk=t=>{
     const c=getC(t,"tenk"); if(c){setTenk(c);return;}
     setTenk({result:null,verdict:null,loading:true,error:null});
     if(!begin(t,"tenk"))return;
