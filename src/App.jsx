@@ -41,10 +41,10 @@ async function callAISearch(msgs, tokens) {
 }
 
 const SCORE_REGEXES = [
-  ["valuation",/^valuation\s*:\s*(\d+)/im],["fcf",/^free cash flow\s*:\s*(\d+)/im],
-  ["returns",/^returns on capital\s*:\s*(\d+)/im],["balance",/^capital structure\s*:\s*(\d+)/im],
-  ["management",/^management\s*:\s*(\d+)/im],["moat",/^moat\s*:\s*(\d+)/im],
-  ["catalysts",/^catalysts\s*:\s*(\d+)/im],["overall",/^overall\s*:\s*(\d+)/im]
+  ["valuation",/^\*{0,2}valuation\*{0,2}\s*:\s*(\d+)/im],["fcf",/^\*{0,2}free cash flow\*{0,2}\s*:\s*(\d+)/im],
+  ["returns",/^\*{0,2}returns on capital\*{0,2}\s*:\s*(\d+)/im],["balance",/^\*{0,2}capital structure\*{0,2}\s*:\s*(\d+)/im],
+  ["management",/^\*{0,2}management\*{0,2}\s*:\s*(\d+)/im],["moat",/^\*{0,2}moat\*{0,2}\s*:\s*(\d+)/im],
+  ["catalysts",/^\*{0,2}catalysts\*{0,2}\s*:\s*(\d+)/im],["overall",/^\*{0,2}overall\*{0,2}\s*:\s*(\d+)/im]
 ];
 function parseScores(t) {
   const s = {};
@@ -64,7 +64,8 @@ function verdict(t) {
 function scoreColor(s) { return s==null?BRD:s>=8?GRN:s>=6?BLU:s>=4?AMB:RED; }
 function scoreBg(s) { return s==null?OFF:s>=8?GRNB:s>=6?BLUB:s>=4?AMBB:REDB; }
 
-const cleanJSON = t => t.replace(/```json/gi,"").replace(/```/g,"").trim();
+const BT=String.fromCharCode(96,96,96);
+const cleanJSON = t => t.replace(new RegExp(BT+"json","gi"),"").replace(new RegExp(BT,"g"),"").trim();
 
 function Box({ children, pad=24, mb=20, style={} }) {
   return <div style={{ background:WHT, border:"1px solid "+BRD, borderRadius:12, padding:pad, marginBottom:mb, boxShadow:"0 1px 4px rgba(11,31,58,0.06)", ...style }}>{children}</div>;
@@ -148,7 +149,9 @@ function ProseRenderer({ text }) {
   const flush = () => { if(buf.length){ elements.push(<p key={elements.length} style={{ margin:"0 0 14px",color:TXTM,lineHeight:1.9,fontSize:14,fontFamily:BF }}>{buf.join(" ")}</p>); buf=[]; } };
   text.split("\n").forEach((line,i) => {
     const tr = line.trim();
-    if (/^(Valuation|Free Cash Flow|Returns on Capital|Capital Structure|Management|Moat|Catalysts|Overall|VERDICT)\s*:/i.test(tr)) return;
+    if (/^(i'll|i will|let me|i'm going to|i'll search|searching)/i.test(tr)) return;
+    if (/^#\s/.test(tr)) return;
+    if (/^\*{0,2}(Valuation|Free Cash Flow|Returns on Capital|Capital Structure|Management|Moat|Catalysts|Overall|VERDICT)\*{0,2}\s*:/i.test(tr)) return;
     const hm = tr.match(/^\*\*(.+?)\*\*\s*(.*)$/);
     if (hm) { flush(); elements.push(<div key={elements.length} style={{ marginTop:i>0?22:0,marginBottom:5 }}><span style={{ fontFamily:DF,fontWeight:700,fontSize:16,color:NAV }}>{hm[1]}</span>{hm[2]&&<span style={{ fontFamily:BF,fontSize:14,color:TXTM }}> {hm[2]}</span>}</div>); return; }
     if (tr==="") { flush(); return; }
@@ -471,7 +474,7 @@ export default function App() {
     setBal({data:null,loading:true});
     if(!begin(t,"bal"))return;
     setTimeout(()=>{
-    callAI([{role:"user",content:"Balance sheet JSON for "+t+". ONLY raw JSON: {\"metrics\":{\"totalAssets\":\"X\",\"totalDebt\":\"X\",\"netCash\":\"X\",\"netCashPositive\":true,\"currentRatio\":\"X\",\"debtEquity\":\"X\",\"bookValuePerShare\":\"X\"},\"rows\":[{\"year\":2024,\"totalAssets\":\"X\",\"totalLiabilities\":\"X\",\"shareholderEquity\":\"X\",\"totalDebt\":\"X\",\"cashEquiv\":\"X\",\"currentRatio\":\"X\"}],\"analysis\":\"2 sentence balance sheet assessment.\"}. 5 years newest first."}],400)
+    callAI([{role:"user",content:"Balance sheet JSON for "+t+". ONLY raw JSON: {\"metrics\":{\"totalAssets\":\"X\",\"totalDebt\":\"X\",\"netCash\":\"X\",\"netCashPositive\":true,\"currentRatio\":\"X\",\"debtEquity\":\"X\",\"bookValuePerShare\":\"X\"},\"rows\":[{\"year\":2024,\"totalAssets\":\"X\",\"totalLiabilities\":\"X\",\"shareholderEquity\":\"X\",\"totalDebt\":\"X\",\"cashEquiv\":\"X\",\"currentRatio\":\"X\"}],\"analysis\":\"2 sentence balance sheet assessment.\"}. 3 years newest first."}],500)
       .then(text=>{
         try{
           const c=cleanJSON(text);
@@ -503,7 +506,7 @@ export default function App() {
     const c=getC(t,"news"); if(c){setNews(c);return;}
     setNews({result:null,loading:true,error:null});
     if(!begin(t,"news"))return;
-    callAISearch([{role:"user",content:"2026 news on "+t+". Sections: **Headlines**, **Financials**, **Analyst View**, **1949 Take**."}],600)
+    callAISearch([{role:"user",content:"Latest news on "+t+" in 2026. Focus on new products, strategic moves, competition, and market positioning. Skip earnings numbers. Sections: **New Products & Innovation**, **Strategic Moves**, **Competitive Landscape**, **1949 Take**."}],600)
       .then(r=>{const n={result:r,loading:false,error:null};putC(t,"news",n);if(live(t))setNews(n);})
       .catch(e=>{if(live(t))setNews({result:null,loading:false,error:e.message});})
       .finally(()=>end(t,"news"));
@@ -512,7 +515,7 @@ export default function App() {
     const c=getC(t,"mgmt"); if(c){setMgmt(c);return;}
     setMgmt({mgmt:null,loading:true});
     if(!begin(t,"mgmt"))return;
-    callAI([{role:"user",content:`Senior mgmt of ${t}. ONLY raw JSON array, no prose. Schema: [{"name":"Full Name","title":"Title","tenure":"X yrs","ownership":"X%","background":"1-2 sent","assessment":"1949 view, 1 sent"}]`}],600)
+    callAISearch([{role:"user",content:"Current senior leadership team of "+t+" as of 2026. Search for their actual names and titles. ONLY raw JSON array, no prose. Schema: [{name:Full Name,title:Title,tenure:X yrs,ownership:X%,background:1-2 sent,assessment:1949 view 1 sent}]"}],600)
       .then(text=>{
         let c=cleanJSON(text);
         if(!c.startsWith("["))c=c.slice(c.indexOf("["));
