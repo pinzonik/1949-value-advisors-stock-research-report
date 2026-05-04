@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 
 const MODEL = "claude-haiku-4-5-20251001";
 const NAV = "#0B1F3A", NAV3 = "#1A3060", NAVL = "#EEF2F8", NAVM = "#C8D5E8";
-const WHT = "#FFFFFF", OFF = "#F7F9FC", BRD = "#D6DEE9";
+const WHT = "#FFFFFF", OFF = "#F0F5FB", BRD = "#D6DEE9";
 const TXT = "#0B1F3A", TXTM = "#3D5270", TXTL = "#7A90AE";
 const GRN = "#0E7C45", GRNB = "#E8F5EE", RED = "#B91C1C", REDB = "#FEF2F2";
 const AMB = "#92530A", AMBB = "#FEF3C7", BLU = "#1D4ED8", BLUB = "#EFF6FF";
@@ -41,10 +41,10 @@ async function callAISearch(msgs, tokens) {
 }
 
 const SCORE_REGEXES = [
-  ["valuation",/^\*{0,2}valuation\*{0,2}\s*:\s*(\d+)/im],["fcf",/^\*{0,2}free cash flow\*{0,2}\s*:\s*(\d+)/im],
-  ["returns",/^\*{0,2}returns on capital\*{0,2}\s*:\s*(\d+)/im],["balance",/^\*{0,2}capital structure\*{0,2}\s*:\s*(\d+)/im],
-  ["management",/^\*{0,2}management\*{0,2}\s*:\s*(\d+)/im],["moat",/^\*{0,2}moat\*{0,2}\s*:\s*(\d+)/im],
-  ["catalysts",/^\*{0,2}catalysts\*{0,2}\s*:\s*(\d+)/im],["overall",/^\*{0,2}overall\*{0,2}\s*:\s*(\d+)/im]
+  ["valuation",/valuation[^\d]*(\d+)/im],["fcf",/free cash flow[^\d]*(\d+)/im],
+  ["returns",/returns on capital[^\d]*(\d+)/im],["balance",/capital structure[^\d]*(\d+)/im],
+  ["management",/management[^\d]*(\d+)/im],["moat",/moat[^\d]*(\d+)/im],
+  ["catalysts",/catalysts[^\d]*(\d+)/im],["overall",/overall[^\d]*(\d+)/im]
 ];
 function parseScores(t) {
   const s = {};
@@ -64,8 +64,9 @@ function verdict(t) {
 function scoreColor(s) { return s==null?BRD:s>=8?GRN:s>=6?BLU:s>=4?AMB:RED; }
 function scoreBg(s) { return s==null?OFF:s>=8?GRNB:s>=6?BLUB:s>=4?AMBB:REDB; }
 
-const BT=String.fromCharCode(96,96,96);
-const cleanJSON = t => t.replace(new RegExp(BT+"json","gi"),"").replace(new RegExp(BT,"g"),"").trim();
+const BT3=String.fromCharCode(96,96,96);
+const BT1=String.fromCharCode(96);
+const cleanJSON = t => t.replace(new RegExp(BT3+"json","gi"),"").replace(new RegExp(BT3,"g"),"").replace(new RegExp(BT1,"g"),"").trim();
 
 function Box({ children, pad=24, mb=20, style={} }) {
   return <div style={{ background:WHT, border:"1px solid "+BRD, borderRadius:12, padding:pad, marginBottom:mb, boxShadow:"0 1px 4px rgba(11,31,58,0.06)", ...style }}>{children}</div>;
@@ -515,7 +516,7 @@ export default function App() {
     const c=getC(t,"mgmt"); if(c){setMgmt(c);return;}
     setMgmt({mgmt:null,loading:true});
     if(!begin(t,"mgmt"))return;
-    callAISearch([{role:"user",content:"Current senior leadership team of "+t+" as of 2026. Search for their actual names and titles. ONLY raw JSON array, no prose. Schema: [{name:Full Name,title:Title,tenure:X yrs,ownership:X%,background:1-2 sent,assessment:1949 view 1 sent}]"}],600)
+    callAISearch([{role:"user",content:"Who are the current CEO, CFO, and top 3 executives of "+t+" as of 2026? Return ONLY a JSON array. No prose, no explanation. Format: [{"name":"Full Name","title":"Title","tenure":"X yrs","ownership":"X%","background":"1 sentence","assessment":"1 sentence 1949 view"}]"}],700)
       .then(text=>{
         let c=cleanJSON(text);
         if(!c.startsWith("["))c=c.slice(c.indexOf("["));
@@ -555,8 +556,8 @@ export default function App() {
   };
 
   return <>
-    <style dangerouslySetInnerHTML={{__html:"@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lato:wght@400;700&display=swap');*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}body{background:#F7F9FC;font-family:'Lato',sans-serif;}button:not(:disabled):hover{opacity:0.85;}@keyframes sp{0%,80%,100%{transform:scale(0.6);opacity:0.3;}40%{transform:scale(1);opacity:1;}}"}}/>
-    <div style={{minHeight:"100vh",background:OFF}}>
+    <style dangerouslySetInnerHTML={{__html:"@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lato:wght@400;700&display=swap');*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}body{background:#EEF4FB;font-family:'Lato',sans-serif;}button:not(:disabled):hover{opacity:0.85;}@keyframes sp{0%,80%,100%{transform:scale(0.6);opacity:0.3;}40%{transform:scale(1);opacity:1;}}.app-bg{min-height:100vh;background:#EEF4FB;background-image:radial-gradient(circle,#C8D5E8 1px,transparent 1px);background-size:28px 28px;}"}}/>
+    <div className="app-bg">
       <header style={{background:NAV,padding:"0 24px",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 16px rgba(11,31,58,0.3)"}}>
         <div style={{maxWidth:1200,margin:"0 auto",height:60,display:"flex",alignItems:"center",gap:18}}>
           <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
