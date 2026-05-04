@@ -10,15 +10,14 @@ const DF = "'Playfair Display',Georgia,serif", BF = "'Lato',sans-serif";
 
 const SYS = `CIO at 1949 Value Advisors LLC. Institutional equity research in flowing prose. No bullets, lists, emoji, or filler. **Bold Header** for sections.`;
 
-// API call. Pass `tools` for server-side tools like web_search.
-const REQ_TIMEOUT_MS = 90000; // 90s — generous for long research notes
+const REQ_TIMEOUT_MS = 90000;
 async function callAI(msgs, tokens, tools) {
   const body = { model: MODEL, max_tokens: tokens, system: SYS, messages: msgs };
   if (tools) body.tools = tools;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), REQ_TIMEOUT_MS);
   try {
-const res = await fetch("/api/chat", {
+    const res = await fetch("/api/chat", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ctrl.signal
     });
     const d = await res.json();
@@ -32,7 +31,6 @@ const res = await fetch("/api/chat", {
   }
 }
 
-// Web search wrapper — falls back to plain call if search unavailable in this environment.
 const SEARCH_TOOL = [{ type: "web_search_20250305", name: "web_search" }];
 async function callAISearch(msgs, tokens) {
   try {
@@ -42,7 +40,6 @@ async function callAISearch(msgs, tokens) {
   return callAI(msgs, tokens);
 }
 
-// Hoisted regexes — avoid recompiling on every parseScores call
 const SCORE_REGEXES = [
   ["valuation",/^valuation\s*:\s*(\d+)/im],["fcf",/^free cash flow\s*:\s*(\d+)/im],
   ["returns",/^returns on capital\s*:\s*(\d+)/im],["balance",/^capital structure\s*:\s*(\d+)/im],
@@ -67,7 +64,6 @@ function verdict(t) {
 function scoreColor(s) { return s==null?BRD:s>=8?GRN:s>=6?BLU:s>=4?AMB:RED; }
 function scoreBg(s) { return s==null?OFF:s>=8?GRNB:s>=6?BLUB:s>=4?AMBB:REDB; }
 
-// Strip markdown code fences from AI responses so JSON.parse can run cleanly
 const cleanJSON = t => t.replace(/```json/gi,"").replace(/```/g,"").trim();
 
 function Box({ children, pad=24, mb=20, style={} }) {
@@ -135,7 +131,6 @@ function Gauge({ score, label }) {
 const GAUGES=[["valuation","Valuation"],["fcf","Free Cash Flow"],["returns","Returns on Capital"],["balance","Capital Structure"],["management","Management"],["moat","Moat"],["catalysts","Catalysts"]];
 const TABS=[{id:"overview",l:"Overview"},{id:"history",l:"10-Year History"},{id:"tenk",l:"10-K Analysis"},{id:"news",l:"News"},{id:"management",l:"Management"}];
 const TILES=["KO","BRK.B","JNJ","TSM","MSFT","GOLD","CVX","NVS"];
-// Accept tickers like AAPL, BRK.B, RDS-A — uppercase letters with optional .X or -X suffix
 const TICKER_RE=/^[A-Z]{1,6}([.\-][A-Z]{1,4})?$/;
 const validTicker=t=>TICKER_RE.test(t);
 function Scorecard({ scores }) {
@@ -219,7 +214,8 @@ function PriceWidget({ ticker }) {
     if(inFlight.current)return;
     inFlight.current=true;
     setLoading(true);setData(null);setFailed(false);
-    callAI([{role:"user",content:`For ${t}, return ONLY raw JSON: {"price":<current>,"prior":<1yr ago>}.`}],200)
+    // Use web search so we get the real current price, not a hallucinated one
+    callAISearch([{role:"user",content:`Search for the current live stock price of ${t} right now. Return ONLY a raw JSON object with no extra text, markdown, or explanation: {"price":<current price as plain number>,"prior":<price exactly 1 year ago as plain number>}`}],400)
       .then(text=>{
         try{
           const c=cleanJSON(text);
@@ -249,8 +245,8 @@ function PriceWidget({ ticker }) {
   const up=dollarChg!=null&&dollarChg>=0, lc=up?GRN:RED;
 
   return <Box>
-    <SectionLabel>{ticker} · Price</SectionLabel>
-    {loading?<div style={{ display:"flex",alignItems:"center",gap:8,color:TXTL,fontFamily:BF }}><Spinner/><span>Loading price...</span></div>
+    <SectionLabel>{ticker} · Live Price</SectionLabel>
+    {loading?<div style={{ display:"flex",alignItems:"center",gap:8,color:TXTL,fontFamily:BF }}><Spinner/><span>Fetching current price for {ticker}...</span></div>
     :price!=null?<div style={{ display:"flex",alignItems:"baseline",gap:14,flexWrap:"wrap" }}>
       <span style={{ fontSize:36,fontWeight:700,fontFamily:DF,color:NAV }}>${price.toFixed(2)}</span>
       {dollarChg!=null&&<span style={{ fontSize:15,fontWeight:700,color:lc,fontFamily:BF }}>{up?"+":"−"}${Math.abs(dollarChg).toFixed(2)}{pctChg!=null&&" ("+(up?"+":"")+pctChg.toFixed(1)+"%)"} 1Y</span>}
@@ -259,7 +255,7 @@ function PriceWidget({ ticker }) {
       <p style={{ fontSize:13,color:TXTL,fontFamily:BF,margin:0 }}>Price unavailable.</p>
       {failed&&<button onClick={()=>load(ticker)} disabled={loading} style={{ background:NAV,color:WHT,border:"none",borderRadius:6,padding:"5px 12px",fontSize:11,fontWeight:700,fontFamily:BF,cursor:loading?"not-allowed":"pointer",opacity:loading?0.55:1 }}>Retry</button>}
     </div>}
-    <p style={{ fontSize:11,color:TXTL,fontFamily:BF,marginTop:10 }}>AI-estimated. Live: <a href={"https://finance.yahoo.com/quote/"+encodeURIComponent(ticker)} target="_blank" rel="noreferrer" style={{ color:BLU }}>Yahoo</a> · <a href={"https://www.tradingview.com/symbols/"+encodeURIComponent(ticker)} target="_blank" rel="noreferrer" style={{ color:BLU }}>TradingView</a></p>
+    <p style={{ fontSize:11,color:TXTL,fontFamily:BF,marginTop:10 }}>Web search estimate. Verify: <a href={"https://finance.yahoo.com/quote/"+encodeURIComponent(ticker)} target="_blank" rel="noreferrer" style={{ color:BLU }}>Yahoo Finance</a> · <a href={"https://www.tradingview.com/symbols/"+encodeURIComponent(ticker)} target="_blank" rel="noreferrer" style={{ color:BLU }}>TradingView</a></p>
   </Box>;
 }
 
