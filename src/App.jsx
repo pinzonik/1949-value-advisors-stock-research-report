@@ -353,12 +353,13 @@ export default function App() {
     if (cached) { setCore(cached); return; }
     setCore({ loading: true, error: null, overview: null, history: null, balance: null });
     if (!begin(t, "core")) return;
-    const prompt = "For stock ticker " + t + ", return a JSON object with exactly these 3 keys:\n" +
-      "1. overview: a research note with scorecard integers 1-10 (Valuation, Free Cash Flow, Returns on Capital, Capital Structure, Management, Moat, Catalysts, Overall each on own line like 'Valuation: 7'), then VERDICT: Undervalued|Fairly Valued|Overvalued, then 3 sections **Overview** **Valuation & Moat** **Bottom Line**\n" +
+    const prompt = "For stock ticker " + t + ", return a JSON object with exactly these 4 keys:\n" +
+      "1. overview: research note with scorecard integers 1-10 (each on own line: Valuation: 7), then VERDICT: Undervalued|Fairly Valued|Overvalued, then sections **Overview** **Valuation & Moat** **Bottom Line**\n" +
       "2. history: array of last 5 years [{year,revenue,netIncome,eps,fcf,roic}]\n" +
       "3. balance: {metrics:{totalAssets,totalDebt,netCash,netCashPositive,currentRatio,debtEquity,bookValuePerShare},rows:[last 2 years {year,totalAssets,totalLiabilities,shareholderEquity,totalDebt,cashEquiv,currentRatio}]}\n" +
+      "4. management: array of top 4 current executives [{name,title,tenure,ownership,background,assessment}]\n" +
       "Return ONLY raw JSON. No backticks. No markdown outside the overview text.";
-    callAI([{ role: "user", content: prompt }], 1500)
+    callAI([{ role: "user", content: prompt }], 1800)
       .then(text => {
         try {
           const c = cleanJSON(text);
@@ -366,9 +367,9 @@ export default function App() {
           if (s < 0 || e < 0) throw new Error("No JSON found");
           const o = JSON.parse(c.slice(s, e + 1));
           if (!o.overview) throw new Error("Missing overview");
-          const n = { loading: false, error: null, overview: o.overview, history: Array.isArray(o.history) ? o.history : null, balance: o.balance || null };
+          const n = { loading: false, error: null, overview: o.overview, history: Array.isArray(o.history) ? o.history : null, balance: o.balance || null, management: Array.isArray(o.management) ? o.management : null };
           putC(t, "core", n);
-          if (live(t)) setCore(n);
+          if (live(t)) { setCore(n); if (n.management) { const mn = {mgmt: n.management, loading: false}; putC(t, "mgmt", mn); setMgmt(mn); } }
         } catch (err) {
           if (live(t)) setCore({ loading: false, error: err.message + " | raw: " + text.slice(0, 200), overview: null, history: null, balance: null });
         }
@@ -422,7 +423,7 @@ export default function App() {
         })
         .catch(e => { if (live(t)) setMgmt({ mgmt: { error: String(e.message) }, loading: false }); })
         .finally(() => end(t, "mgmt"));
-    }, 1200);
+    }, 3000);
   };
 
   const analyze = t => {
@@ -439,7 +440,7 @@ export default function App() {
     if (!ticker) return;
     if (tab === "tenk" && !tenk.result && !tenk.loading && !tenk.error) fetchTenk(ticker);
     else if (tab === "news" && !news.result && !news.loading && !news.error) fetchNews(ticker);
-    else if (tab === "management" && !mgmt.mgmt && !mgmt.loading) fetchMgmt(ticker);
+    else if (tab === "management" && !mgmt.mgmt && !mgmt.loading && !core.loading) fetchMgmt(ticker);
   }, [tab, ticker]);
 
   const go = () => {
