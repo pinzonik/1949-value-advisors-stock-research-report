@@ -521,21 +521,23 @@ export default function App() {
     const c=getC(t,"mgmt"); if(c){setMgmt(c);return;}
     setMgmt({mgmt:null,loading:true});
     if(!begin(t,"mgmt"))return;
-    callAISearch([{role:"user",content:"Current executive team of "+t+" in 2026. For each of the top 4 executives, write exactly: NAME | TITLE | YEARS_AT_COMPANY | SHARE_OWNERSHIP | one sentence background | one sentence assessment. One executive per line."}],400)
-      .then(text=>{
+    callAISearch([{role:"user",content:"Who are the current CEO, CFO, President, and other top executives of "+t+" as of 2026? List their names and titles."}],300)
+      .then(function(searchText){
+        return callAI([{role:"user",content:"Based on this info about "+t+" executives:\n"+searchText+"\n\nReturn ONLY a JSON array. No backticks. No prose. Example: [{name:\"Jane Smith\",title:\"CEO\",tenure:\"3 yrs\",ownership:\"0.1%\",background:\"Brief background\",assessment:\"1949 view\"}]"}],500);
+      })
+      .then(function(text){
         try{
-          var lines=text.split("\n").map(function(l){return l.trim();}).filter(function(l){return l.indexOf("|")>-1;});
-          var parsed=lines.map(function(l){
-            var parts=l.split("|").map(function(p){return p.trim();});
-            return {name:parts[0]||"",title:parts[1]||"",tenure:parts[2]||"",ownership:parts[3]||"",background:parts[4]||"",assessment:parts[5]||""};
-          }).filter(function(p){return p.name&&p.title;});
-          if(!parsed.length)throw new Error("No data");
+          var c=cleanJSON(text);
+          var s=c.indexOf("["),e=c.lastIndexOf("]");
+          if(s<0||e<0)throw new Error("No JSON");
+          var parsed=JSON.parse(c.slice(s,e+1));
+          if(!Array.isArray(parsed)||!parsed.length)throw new Error("Empty");
           var n={mgmt:parsed,loading:false};
           putC(t,"mgmt",n);if(live(t))setMgmt(n);
-        }catch(e2){if(live(t))setMgmt({mgmt:{error:"Could not parse: "+String(e2.message)},loading:false});}
+        }catch(e2){if(live(t))setMgmt({mgmt:{error:"Parse error: "+String(e2.message)},loading:false});}
       })
-      .catch(e=>{if(live(t))setMgmt({mgmt:{error:String(e)},loading:false});})
-      .finally(()=>end(t,"mgmt"));
+      .catch(function(e){if(live(t))setMgmt({mgmt:{error:String(e)},loading:false});})
+      .finally(function(){end(t,"mgmt");});
   };
 
   const analyze=t=>{
