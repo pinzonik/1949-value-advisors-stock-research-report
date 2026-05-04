@@ -214,24 +214,21 @@ function PriceWidget({ ticker }) {
     if(inFlight.current)return;
     inFlight.current=true;
     setLoading(true);setData(null);setFailed(false);
-    // Use web search so we get the real current price, not a hallucinated one
-    callAISearch([{role:"user",content:`Search for the current live stock price of ${t} right now. Return ONLY a raw JSON object with no extra text, markdown, or explanation: {"price":<current price as plain number>,"prior":<price exactly 1 year ago as plain number>}`}],400)
-      .then(text=>{
-        try{
-          const c=cleanJSON(text);
-          const s=c.indexOf("{"),e=c.lastIndexOf("}");
-          if(s<0||e<0)throw 0;
-          const o=JSON.parse(c.slice(s,e+1));
-          const np=parseFloat(String(o.price).replace(/[^0-9.\-]/g,""));
-          const nq=parseFloat(String(o.prior).replace(/[^0-9.\-]/g,""));
-          if(!Number.isFinite(np)||!Number.isFinite(nq))throw 0;
-          const cleaned={price:np,prior:nq};
-          priceCache[t]=cleaned;
-          if(tickerRef.current===t)setData(cleaned);
-        }catch{ if(tickerRef.current===t)setFailed(true); }
+    fetch("https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(t)+"?interval=1d&range=1y",{headers:{"Accept":"application/json"}})
+      .then(r=>r.json())
+      .then(d=>{
+        const meta=d&&d.chart&&d.chart.result&&d.chart.result[0]&&d.chart.result[0].meta;
+        if(!meta)throw new Error("no meta");
+        const price=meta.regularMarketPrice||meta.previousClose;
+        const closes=(d.chart.result[0].indicators&&d.chart.result[0].indicators.quote&&d.chart.result[0].indicators.quote[0]&&d.chart.result[0].indicators.quote[0].close)||[];
+        const prior=closes.find(function(v){return v!=null;})||price;
+        if(!Number.isFinite(price))throw new Error("bad price");
+        const cleaned={price:price,prior:prior};
+        priceCache[t]=cleaned;
+        if(tickerRef.current===t)setData(cleaned);
       })
-      .catch(()=>{ if(tickerRef.current===t)setFailed(true); })
-      .finally(()=>{ inFlight.current=false; if(tickerRef.current===t)setLoading(false); });
+      .catch(function(){ if(tickerRef.current===t)setFailed(true); })
+      .finally(function(){ inFlight.current=false; if(tickerRef.current===t)setLoading(false); });
   };
 
   useEffect(()=>{
@@ -520,7 +517,8 @@ export default function App() {
     const c=getC(t,"bal"); if(c){setBal(c);return;}
     setBal({data:null,loading:true});
     if(!begin(t,"bal"))return;
-    callAI([{role:"user",content:`Balance sheet data for ${t}. Return ONLY raw JSON, no prose:\n{"metrics":{"totalAssets":"<latest>","totalDebt":"<latest>","netCash":"<net cash or net debt>","netCashPositive":<true|false>,"currentRatio":"<latest>","debtEquity":"<latest>","bookValuePerShare":"<latest>"},"rows":[{"year":2024,"totalAssets":"<val>","totalLiabilities":"<val>","shareholderEquity":"<val>","totalDebt":"<val>","cashEquiv":"<val>","currentRatio":"<val>"}],"analysis":"3-4 sentence institutional assessment of the balance sheet strength, leverage, and liquidity."}\nProvide rows for last 5 years, newest first.`}],1400)
+    setTimeout(()=>{
+    callAI([{role:"user",content:"Balance sheet JSON for "+t+". ONLY raw JSON: {\"metrics\":{\"totalAssets\":\"X\",\"totalDebt\":\"X\",\"netCash\":\"X\",\"netCashPositive\":true,\"currentRatio\":\"X\",\"debtEquity\":\"X\",\"bookValuePerShare\":\"X\"},\"rows\":[{\"year\":2024,\"totalAssets\":\"X\",\"totalLiabilities\":\"X\",\"shareholderEquity\":\"X\",\"totalDebt\":\"X\",\"cashEquiv\":\"X\",\"currentRatio\":\"X\"}],\"analysis\":\"2 sentence balance sheet assessment.\"}. 5 years newest first."}],400)
       .then(text=>{
         try{
           const c=cleanJSON(text);
@@ -537,6 +535,7 @@ export default function App() {
       })
       .catch(err=>{if(live(t))setBal({data:{error:String(err.message||err)},loading:false});})
       .finally(()=>end(t,"bal"));
+    },2000);
   };
   const fetchTenk=t=>{
     const c=getC(t,"tenk"); if(c){setTenk(c);return;}
