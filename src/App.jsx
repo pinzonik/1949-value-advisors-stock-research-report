@@ -205,7 +205,8 @@ function OverviewTab({ ticker, core, onRetry }) {
 
 function HistoryTab({ ticker, core, onRetry }) {
   if (core.loading) return <LoadingBox label="Loading history..." />;
-  if (!core.history) return null;
+  if (core.error) return <ErrorBox msg={core.error} onRetry={onRetry} />;
+  if (!core.history) return <ErrorBox msg="History data unavailable." onRetry={onRetry} />;
   if (core.history.error) return <ErrorBox msg={core.history.error} onRetry={onRetry} />;
   const cols = ["year", "revenue", "netIncome", "eps", "fcf", "roic"];
   const heads = ["Year", "Revenue", "Net Income", "EPS", "FCF", "ROIC"];
@@ -226,7 +227,8 @@ function HistoryTab({ ticker, core, onRetry }) {
 
 function BalanceTab({ ticker, core, onRetry }) {
   if (core.loading) return <LoadingBox label="Loading balance sheet..." />;
-  if (!core.balance) return null;
+  if (core.error) return <ErrorBox msg={core.error} onRetry={onRetry} />;
+  if (!core.balance) return <ErrorBox msg="Balance sheet data unavailable." onRetry={onRetry} />;
   if (core.balance.error) return <ErrorBox msg={core.balance.error} onRetry={onRetry} />;
   const { metrics, rows } = core.balance;
   const cards = [
@@ -353,7 +355,7 @@ export default function App() {
     if (cached) { setCore(cached); return; }
     setCore({ loading: true, error: null, overview: null, history: null, balance: null });
     if (!begin(t, "core")) return;
-    const prompt = "Analyze " + t + " using 1949 value investing criteria (margin of safety, FCF quality, ROIC, moat, management). Output EXACTLY in this format with the delimiters on their own lines:\n\n===OVERVIEW===\nValuation: N\nFree Cash Flow: N\nReturns on Capital: N\nCapital Structure: N\nManagement: N\nMoat: N\nCatalysts: N\nOverall: N\nVERDICT: Fairly Valued\n\n**Overview**\n(2-3 sentences)\n\n**Valuation & Moat**\n(2-3 sentences)\n\n**Bottom Line**\n(1-2 sentences)\n\n===HISTORY===\n[{year:2024,revenue:X,netIncome:X,eps:X,fcf:X,roic:X}]\n(10 years newest first, no backticks)\n\n===BALANCE===\n{metrics:{totalAssets:X,totalDebt:X,netCash:X,netCashPositive:true,currentRatio:X,debtEquity:X,bookValuePerShare:X},rows:[{year:2024,totalAssets:X,totalLiabilities:X,shareholderEquity:X,totalDebt:X,cashEquiv:X,currentRatio:X}]}\n(5 years newest first, no backticks)\n\n===MANAGEMENT===\n[{name:X,title:X,tenure:X,ownership:X,background:X,assessment:X}]\n(top 4 executives, no backticks)";
+    const prompt = "Analyze " + t + " using 1949 value investing criteria (margin of safety, FCF quality, ROIC, moat, management). Output EXACTLY in this format:\n\n===OVERVIEW===\nValuation: N\nFree Cash Flow: N\nReturns on Capital: N\nCapital Structure: N\nManagement: N\nMoat: N\nCatalysts: N\nOverall: N\nVERDICT: Fairly Valued\n\n**Overview**\n2-3 sentences\n\n**Valuation & Moat**\n2-3 sentences\n\n**Bottom Line**\n1-2 sentences\n\n===HISTORY===\n[{\"year\":2024,\"revenue\":\"X\",\"netIncome\":\"X\",\"eps\":\"X\",\"fcf\":\"X\",\"roic\":\"X\"}]\nProvide 10 years newest first with real values. No backticks.\n\n===BALANCE===\n{\"metrics\":{\"totalAssets\":\"X\",\"totalDebt\":\"X\",\"netCash\":\"X\",\"netCashPositive\":true,\"currentRatio\":\"X\",\"debtEquity\":\"X\",\"bookValuePerShare\":\"X\"},\"rows\":[{\"year\":2024,\"totalAssets\":\"X\",\"totalLiabilities\":\"X\",\"shareholderEquity\":\"X\",\"totalDebt\":\"X\",\"cashEquiv\":\"X\",\"currentRatio\":\"X\"}]}\nProvide 5 years newest first. No backticks.\n\n===MANAGEMENT===\n[{\"name\":\"X\",\"title\":\"X\",\"tenure\":\"X\",\"ownership\":\"X\",\"background\":\"1 sentence\",\"assessment\":\"1 sentence\"}]\nTop 4 current executives. No backticks.";
     callAI([{ role: "user", content: prompt }], 2200)
       .then(text => {
         try {
@@ -367,25 +369,38 @@ export default function App() {
           const ovText = sec("OVERVIEW");
           if (!ovText) throw new Error("No OVERVIEW section found");
           // Parse history JSON
+          // Lenient JS eval parser - handles unquoted keys from Haiku
+          const safeEval = function(str, startChar, endChar) {
+            try {
+              const s = str.indexOf(startChar), e = str.lastIndexOf(endChar);
+              if (s < 0 || e <= s) return null;
+              const slice = str.slice(s, e + 1);
+              // First try strict JSON
+              try { return JSON.parse(slice); } catch(_) {}
+              // Fallback: quote unquoted keys
+              const fixed = slice.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
+              return JSON.parse(fixed);
+            } catch(e) { return null; }
+          };
           let histRows = null;
           try {
             const hRaw = cleanJSON(sec("HISTORY"));
-            const hs = hRaw.indexOf("["), he = hRaw.lastIndexOf("]");
-            if (hs >= 0 && he > hs) histRows = JSON.parse(hRaw.slice(hs, he + 1));
+            const result = safeEval(hRaw, "[", "]");
+            if (Array.isArray(result) && result.length) histRows = result;
           } catch(e) { histRows = null; }
-          // Parse balance JSON
+          // Parse balance
           let balData = null;
           try {
             const bRaw = cleanJSON(sec("BALANCE"));
-            const bs = bRaw.indexOf("{"), be = bRaw.lastIndexOf("}");
-            if (bs >= 0 && be > bs) balData = JSON.parse(bRaw.slice(bs, be + 1));
+            const result = safeEval(bRaw, "{", "}");
+            if (result && result.metrics) balData = result;
           } catch(e) { balData = null; }
-          // Parse management JSON
+          // Parse management
           let mgmtData = null;
           try {
             const mRaw = cleanJSON(sec("MANAGEMENT"));
-            const ms = mRaw.indexOf("["), me = mRaw.lastIndexOf("]");
-            if (ms >= 0 && me > ms) mgmtData = JSON.parse(mRaw.slice(ms, me + 1));
+            const result = safeEval(mRaw, "[", "]");
+            if (Array.isArray(result) && result.length) mgmtData = result;
           } catch(e) { mgmtData = null; }
           const n = { loading: false, error: null, overview: ovText, history: histRows, balance: balData, management: mgmtData };
           putC(t, "core", n);
