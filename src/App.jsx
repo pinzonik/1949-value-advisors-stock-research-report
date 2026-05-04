@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 
 const MODEL = "claude-sonnet-4-5";
+const MODEL_FAST = "claude-haiku-4-5-20251001";
 const NAV = "#0B1F3A", NAV3 = "#1A3060", NAVL = "#EEF2F8", NAVM = "#C8D5E8";
 const WHT = "#FFFFFF", OFF = "#F7F9FC", BRD = "#D6DEE9";
 const TXT = "#0B1F3A", TXTM = "#3D5270", TXTL = "#7A90AE";
@@ -11,8 +12,8 @@ const DF = "'Playfair Display',Georgia,serif", BF = "'Lato',sans-serif";
 const SYS = `CIO at 1949 Value Advisors LLC. Institutional equity research in flowing prose. No bullets, lists, emoji, or filler. **Bold Header** for sections.`;
 
 const REQ_TIMEOUT_MS = 90000;
-async function callAI(msgs, tokens, tools) {
-  const body = { model: MODEL, max_tokens: tokens, system: SYS, messages: msgs };
+async function callAI(msgs, tokens, tools, model) {
+  const body = { model: model||MODEL, max_tokens: tokens, system: SYS, messages: msgs };
   if (tools) body.tools = tools;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), REQ_TIMEOUT_MS);
@@ -32,12 +33,12 @@ async function callAI(msgs, tokens, tools) {
 }
 
 const SEARCH_TOOL = [{ type: "web_search_20250305", name: "web_search" }];
-async function callAISearch(msgs, tokens) {
+async function callAISearch(msgs, tokens, tools, model) {
   try {
-    const text = await callAI(msgs, tokens, SEARCH_TOOL);
+    const text = await callAI(msgs, tokens, SEARCH_TOOL, model);
     if (text.trim()) return text;
   } catch {}
-  return callAI(msgs, tokens);
+  return callAI(msgs, tokens, null, model);
 }
 
 const SCORE_REGEXES = [
@@ -174,7 +175,7 @@ function Chat({ context }) {
     const u={role:"user",content:inp},up=[...msgs,u];
     setMsgs(up);setInp("");setLoading(true);
     try{
-      const r=await callAI([{role:"user",content:"Context:\n"+context},{role:"assistant",content:"Understood."},...up],800);
+      const r=await callAI([{role:"user",content:"Context:\n"+context},{role:"assistant",content:"Understood."},...up],300,null,MODEL_FAST);
       if(mountedRef.current)setMsgs(prev=>[...prev,{role:"assistant",content:r}]);
     }
     catch(e){ if(mountedRef.current)setMsgs(prev=>[...prev,{role:"assistant",content:"Error: "+e.message}]); }
@@ -214,18 +215,18 @@ function PriceWidget({ ticker }) {
     if(inFlight.current)return;
     inFlight.current=true;
     setLoading(true);setData(null);setFailed(false);
-    fetch("https://query1.finance.yahoo.com/v8/finance/chart/"+encodeURIComponent(t)+"?interval=1d&range=1y",{headers:{"Accept":"application/json"}})
-      .then(r=>r.json())
-      .then(d=>{
-        const meta=d&&d.chart&&d.chart.result&&d.chart.result[0]&&d.chart.result[0].meta;
-        if(!meta)throw new Error("no meta");
-        const price=meta.regularMarketPrice||meta.previousClose;
-        const closes=(d.chart.result[0].indicators&&d.chart.result[0].indicators.quote&&d.chart.result[0].indicators.quote[0]&&d.chart.result[0].indicators.quote[0].close)||[];
-        const prior=closes.find(function(v){return v!=null;})||price;
-        if(!Number.isFinite(price))throw new Error("bad price");
-        const cleaned={price:price,prior:prior};
-        priceCache[t]=cleaned;
-        if(tickerRef.current===t)setData(cleaned);
+    callAISearch([{role:"user",content:"What is the current stock price of "+t+" and the price 1 year ago? Respond ONLY with JSON: {price:NUMBER,prior:NUMBER}"}],120,null,MODEL_FAST)
+      .then(function(text){
+        try{
+          var c=cleanJSON(text),s=c.indexOf("{"),e=c.lastIndexOf("}");
+          if(s<0||e<0)throw 0;
+          var o=JSON.parse(c.slice(s,e+1));
+          var np=parseFloat(String(o.price).replace(/[^0-9.-]/g,""));
+          var nq=parseFloat(String(o.prior).replace(/[^0-9.-]/g,""));
+          if(!Number.isFinite(np)||!Number.isFinite(nq))throw 0;
+          priceCache[t]={price:np,prior:nq};
+          if(tickerRef.current===t)setData(priceCache[t]);
+        }catch(err){ if(tickerRef.current===t)setFailed(true); }
       })
       .catch(function(){ if(tickerRef.current===t)setFailed(true); })
       .finally(function(){ inFlight.current=false; if(tickerRef.current===t)setLoading(false); });
@@ -337,7 +338,7 @@ function YearDetail({ ticker, row }) {
     if(yearCache[key]){setTxt(yearCache[key]);setLoading(false);return;}
     setTxt(null);setLoading(true);
     let mounted=true;
-    callAI([{role:"user",content:`${ticker} FY${row.year}. Rev ${row.revenue}|NI ${row.netIncome}|EPS ${row.eps}|FCF ${row.fcf}|ROIC ${row.roic}. Sections: **Year in Review**, **FCF Quality**, **Capital Allocation**, **Key Events**, **1949 Verdict**.`}],900)
+    callAI([{role:"user",content:`${ticker} FY${row.year}. Rev ${row.revenue}|NI ${row.netIncome}|EPS ${row.eps}|FCF ${row.fcf}|ROIC ${row.roic}. Sections: **Year in Review**, **FCF Quality**, **Capital Allocation**, **Key Events**, **1949 Verdict**.`}],400,null,MODEL_FAST)
       .then(r=>{yearCache[key]=r;if(mounted)setTxt(r);})
       .catch(e=>{if(mounted)setTxt("Error: "+e.message);})
       .finally(()=>{if(mounted)setLoading(false);});
@@ -485,7 +486,18 @@ export default function App() {
     const c=getC(t,"ov"); if(c){setOv(c);return;}
     setOv({result:null,scores:{},verdict:null,loading:true,error:null});
     if(!begin(t,"ov"))return;
-    callAI([{role:"user",content:`Research note on ${t}. First scorecard, one per line, integer 1-10:\nValuation: <n>\nFree Cash Flow: <n>\nReturns on Capital: <n>\nCapital Structure: <n>\nManagement: <n>\nMoat: <n>\nCatalysts: <n>\nOverall: <n>\nVERDICT: Undervalued|Fairly Valued|Overvalued\n\nThen sections: **Company Overview**, **Valuation & Margin of Safety**, **Free Cash Flow**, **Capital Structure**, **Competitive Moat**, **Management**, **Catalysts**, **Key Risks**, **Bottom Line**.`}],1500)
+    callAI([{role:"user",content:"Scorecard for "+t+" integers 1-10:
+Valuation: <n>
+Free Cash Flow: <n>
+Returns on Capital: <n>
+Capital Structure: <n>
+Management: <n>
+Moat: <n>
+Catalysts: <n>
+Overall: <n>
+VERDICT: Undervalued|Fairly Valued|Overvalued
+
+3 short sections: **Overview**, **Valuation & Moat**, **Bottom Line**."}],700)
       .then(r=>{const n={result:r,scores:parseScores(r),verdict:verdict(r),loading:false,error:null};putC(t,"ov",n);if(live(t))setOv(n);})
       .catch(e=>{if(live(t))setOv({result:null,scores:{},verdict:null,loading:false,error:e.message});})
       .finally(()=>end(t,"ov"));
@@ -494,7 +506,7 @@ export default function App() {
     const c=getC(t,"hist"); if(c){setHist(c);return;}
     setHist({rows:null,loading:true});
     if(!begin(t,"hist"))return;
-    callAI([{role:"user",content:`ONLY raw JSON array for ${t}, 10 yrs annual, newest first. No prose. Schema: [{"year":2024,"revenue":"94.2B","netIncome":"23.1B","eps":"5.42","fcf":"18.6B","roic":"18.2%"}]`}],1500)
+    callAI([{role:"user",content:"JSON array only for "+t+", 10yr annual newest first. Schema:[{year:2024,revenue:\"94B\",netIncome:\"23B\",eps:\"5.42\",fcf:\"18B\",roic:\"18%\"}]"}],700,null,MODEL_FAST)
       .then(text=>{
         try{
           let c=cleanJSON(text);
@@ -518,7 +530,7 @@ export default function App() {
     setBal({data:null,loading:true});
     if(!begin(t,"bal"))return;
     setTimeout(()=>{
-    callAI([{role:"user",content:"Balance sheet JSON for "+t+". ONLY raw JSON: {\"metrics\":{\"totalAssets\":\"X\",\"totalDebt\":\"X\",\"netCash\":\"X\",\"netCashPositive\":true,\"currentRatio\":\"X\",\"debtEquity\":\"X\",\"bookValuePerShare\":\"X\"},\"rows\":[{\"year\":2024,\"totalAssets\":\"X\",\"totalLiabilities\":\"X\",\"shareholderEquity\":\"X\",\"totalDebt\":\"X\",\"cashEquiv\":\"X\",\"currentRatio\":\"X\"}],\"analysis\":\"2 sentence balance sheet assessment.\"}. 5 years newest first."}],400)
+    callAI([{role:"user",content:"Balance sheet JSON for "+t+". ONLY raw JSON: {\"metrics\":{\"totalAssets\":\"X\",\"totalDebt\":\"X\",\"netCash\":\"X\",\"netCashPositive\":true,\"currentRatio\":\"X\",\"debtEquity\":\"X\",\"bookValuePerShare\":\"X\"},\"rows\":[{\"year\":2024,\"totalAssets\":\"X\",\"totalLiabilities\":\"X\",\"shareholderEquity\":\"X\",\"totalDebt\":\"X\",\"cashEquiv\":\"X\",\"currentRatio\":\"X\"}],\"analysis\":\"2 sentence balance sheet assessment.\"}. 5 years newest first."}],400,null,MODEL_FAST)
       .then(text=>{
         try{
           const c=cleanJSON(text);
@@ -541,7 +553,7 @@ export default function App() {
     const c=getC(t,"tenk"); if(c){setTenk(c);return;}
     setTenk({result:null,verdict:null,loading:true,error:null});
     if(!begin(t,"tenk"))return;
-    callAI([{role:"user",content:`10-K research note on ${t}. Sections: **Filing Overview**, **Valuation & Margin of Safety**, **FCF Deep Dive**, **Capital Structure**, **Management Commentary**, **Key Risks**, **Catalysts**, **Bottom Line**. End with "VERDICT: Undervalued|Fairly Valued|Overvalued".`}],1500)
+    callAI([{role:"user",content:"10-K note on "+t+". Sections: **Filing Overview**, **Valuation**, **Key Risks**, **Bottom Line**. End: VERDICT: Undervalued|Fairly Valued|Overvalued."}],700)
       .then(r=>{const n={result:r,verdict:verdict(r),loading:false,error:null};putC(t,"tenk",n);if(live(t))setTenk(n);})
       .catch(e=>{if(live(t))setTenk({result:null,verdict:null,loading:false,error:e.message});})
       .finally(()=>end(t,"tenk"));
@@ -550,7 +562,7 @@ export default function App() {
     const c=getC(t,"news"); if(c){setNews(c);return;}
     setNews({result:null,loading:true,error:null});
     if(!begin(t,"news"))return;
-    callAISearch([{role:"user",content:`Latest 2026 news on ${t}. Sections: **Recent Headlines**, **Earnings & Financials**, **Strategic Developments**, **Analyst Sentiment**, **1949 Assessment**.`}],1500)
+    callAISearch([{role:"user",content:"2026 news on "+t+". Sections: **Headlines**, **Financials**, **Analyst View**, **1949 Take**."}],600)
       .then(r=>{const n={result:r,loading:false,error:null};putC(t,"news",n);if(live(t))setNews(n);})
       .catch(e=>{if(live(t))setNews({result:null,loading:false,error:e.message});})
       .finally(()=>end(t,"news"));
@@ -559,7 +571,7 @@ export default function App() {
     const c=getC(t,"mgmt"); if(c){setMgmt(c);return;}
     setMgmt({mgmt:null,loading:true});
     if(!begin(t,"mgmt"))return;
-    callAI([{role:"user",content:`Senior mgmt of ${t}. ONLY raw JSON array, no prose. Schema: [{"name":"Full Name","title":"Title","tenure":"X yrs","ownership":"X%","background":"1-2 sent","assessment":"1949 view, 1 sent"}]`}],1200)
+    callAI([{role:"user",content:`Senior mgmt of ${t}. ONLY raw JSON array, no prose. Schema: [{"name":"Full Name","title":"Title","tenure":"X yrs","ownership":"X%","background":"1-2 sent","assessment":"1949 view, 1 sent"}]`}],600,null,MODEL_FAST)
       .then(text=>{
         let c=cleanJSON(text);
         if(!c.startsWith("["))c=c.slice(c.indexOf("["));
