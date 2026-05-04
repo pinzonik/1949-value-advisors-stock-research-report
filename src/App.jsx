@@ -129,7 +129,7 @@ function Gauge({ score, label }) {
   </div>;
 }
 const GAUGES=[["valuation","Valuation"],["fcf","Free Cash Flow"],["returns","Returns on Capital"],["balance","Capital Structure"],["management","Management"],["moat","Moat"],["catalysts","Catalysts"]];
-const TABS=[{id:"overview",l:"Overview"},{id:"history",l:"10-Year History"},{id:"tenk",l:"10-K Analysis"},{id:"news",l:"News"},{id:"management",l:"Management"}];
+const TABS=[{id:"overview",l:"Overview"},{id:"history",l:"10-Year History"},{id:"balance",l:"Balance Sheet"},{id:"tenk",l:"10-K Analysis"},{id:"news",l:"News"},{id:"management",l:"Management"}];
 const TILES=["KO","BRK.B","JNJ","TSM","MSFT","GOLD","CVX","NVS"];
 const TICKER_RE=/^[A-Z]{1,6}([.\-][A-Z]{1,4})?$/;
 const validTicker=t=>TICKER_RE.test(t);
@@ -415,11 +415,59 @@ function MgmtTab({ ticker, d, onRetry }) {
   </>;
 }
 
+function BalanceTab({ ticker, d, onRetry }) {
+  if(d.loading)return <LoadingBox label={"Loading balance sheet for "+ticker+"..."}/>;
+  if(!d.data)return null;
+  if(d.data.error)return <ErrorBox msg={d.data.error} mono onRetry={onRetry}/>;
+  const { metrics, rows, analysis } = d.data;
+  const metricCards = [
+    { label:"Total Assets", value:metrics.totalAssets, color:BLU, bg:BLUB },
+    { label:"Total Debt", value:metrics.totalDebt, color:RED, bg:REDB },
+    { label:"Net Cash / (Debt)", value:metrics.netCash, color:metrics.netCashPositive?GRN:RED, bg:metrics.netCashPositive?GRNB:REDB },
+    { label:"Current Ratio", value:metrics.currentRatio, color:+metrics.currentRatio>=1.5?GRN:+metrics.currentRatio>=1?AMB:RED, bg:+metrics.currentRatio>=1.5?GRNB:+metrics.currentRatio>=1?AMBB:REDB },
+    { label:"Debt / Equity", value:metrics.debtEquity, color:parseFloat(metrics.debtEquity)<=1?GRN:parseFloat(metrics.debtEquity)<=2?AMB:RED, bg:parseFloat(metrics.debtEquity)<=1?GRNB:parseFloat(metrics.debtEquity)<=2?AMBB:REDB },
+    { label:"Book Value / Share", value:metrics.bookValuePerShare, color:NAV, bg:NAVL },
+  ];
+  const cols=["year","totalAssets","totalLiabilities","shareholderEquity","totalDebt","cashEquiv","currentRatio"];
+  const heads=["Year","Total Assets","Total Liabilities","Equity","Total Debt","Cash & Equiv","Current Ratio"];
+  return <>
+    <div style={{ background:NAV,borderRadius:12,padding:"24px 30px",marginBottom:20,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:16 }}>
+      <div>
+        <div style={{ fontSize:22,fontWeight:700,fontFamily:DF,color:WHT }}>{ticker} — Balance Sheet</div>
+        <a href={"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK="+encodeURIComponent(ticker)+"&type=10-K&owner=include&count=5"} target="_blank" rel="noreferrer" style={{ fontSize:12,color:"#93C5FD",fontFamily:BF,display:"block",marginTop:4 }}>Verify on SEC EDGAR →</a>
+      </div>
+    </div>
+    <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:12,marginBottom:20 }}>
+      {metricCards.map(({label,value,color,bg})=><div key={label} style={{ background:bg,border:"1px solid "+color+"33",borderRadius:10,padding:"16px 18px" }}>
+        <div style={{ fontSize:9,fontWeight:700,letterSpacing:"0.16em",textTransform:"uppercase",color:color,fontFamily:BF,marginBottom:6 }}>{label}</div>
+        <div style={{ fontSize:22,fontWeight:700,fontFamily:DF,color:color }}>{value||"N/A"}</div>
+      </div>)}
+    </div>
+    <Box pad={0} mb={20}>
+      <div style={{ overflowX:"auto" }}>
+        <table style={{ width:"100%",borderCollapse:"collapse",fontSize:13,fontFamily:BF }}>
+          <thead><tr style={{ background:NAV }}>{heads.map((h,i)=><th key={i} style={{ padding:"10px 14px",textAlign:i===0?"left":"right",fontSize:10,fontWeight:600,letterSpacing:"0.12em",textTransform:"uppercase",color:NAVM,whiteSpace:"nowrap" }}>{h}</th>)}</tr></thead>
+          <tbody>{rows.map((row,i)=><tr key={row.year} style={{ background:i%2===0?WHT:OFF }}>
+            {cols.map((k,ci)=><td key={k} style={{ padding:"10px 14px",textAlign:ci===0?"left":"right",color:ci===0?NAV:TXTM,fontWeight:ci===0?700:400,borderBottom:"1px solid "+BRD,whiteSpace:"nowrap",fontFamily:ci===0?DF:BF }}>
+              {row[k]||"N/A"}
+            </td>)}
+          </tr>)}</tbody>
+        </table>
+      </div>
+      <div style={{ padding:"10px 20px",background:OFF,borderTop:"1px solid "+BRD }}>
+        <p style={{ fontSize:11,color:TXTL,fontFamily:BF,margin:0 }}>AI-estimated figures. Verify against SEC EDGAR filings.</p>
+      </div>
+    </Box>
+    {analysis&&<Box><SectionLabel>1949 Balance Sheet Analysis</SectionLabel><ProseRenderer text={analysis}/></Box>}
+  </>;
+}
+
 export default function App() {
   const [inp,setInp]=useState(""),[ticker,setTicker]=useState(""),[tab,setTab]=useState("overview");
   const [inpInvalid,setInpInvalid]=useState(false);
   const [ov,setOv]=useState({result:null,scores:{},verdict:null,loading:false,error:null});
   const [hist,setHist]=useState({rows:null,loading:false});
+  const [bal,setBal]=useState({data:null,loading:false});
   const [tenk,setTenk]=useState({result:null,verdict:null,loading:false,error:null});
   const [news,setNews]=useState({result:null,loading:false,error:null});
   const [mgmt,setMgmt]=useState({mgmt:null,loading:false});
@@ -468,7 +516,28 @@ export default function App() {
       .catch(err=>{if(live(t))setHist({rows:{error:String(err.message||err)},loading:false});})
       .finally(()=>end(t,"hist"));
   };
-  const fetchTenk=t=>{
+  const fetchBal=t=>{
+    const c=getC(t,"bal"); if(c){setBal(c);return;}
+    setBal({data:null,loading:true});
+    if(!begin(t,"bal"))return;
+    callAI([{role:"user",content:`Balance sheet data for ${t}. Return ONLY raw JSON, no prose:\n{"metrics":{"totalAssets":"<latest>","totalDebt":"<latest>","netCash":"<net cash or net debt>","netCashPositive":<true|false>,"currentRatio":"<latest>","debtEquity":"<latest>","bookValuePerShare":"<latest>"},"rows":[{"year":2024,"totalAssets":"<val>","totalLiabilities":"<val>","shareholderEquity":"<val>","totalDebt":"<val>","cashEquiv":"<val>","currentRatio":"<val>"}],"analysis":"3-4 sentence institutional assessment of the balance sheet strength, leverage, and liquidity."}\nProvide rows for last 5 years, newest first.`}],1400)
+      .then(text=>{
+        try{
+          const c=cleanJSON(text);
+          const s=c.indexOf("{"),e=c.lastIndexOf("}");
+          if(s<0||e<0)throw new Error("No JSON found");
+          const o=JSON.parse(c.slice(s,e+1));
+          if(!o.metrics||!o.rows)throw new Error("Invalid structure");
+          const n={data:o,loading:false};
+          putC(t,"bal",n);if(live(t))setBal(n);
+        }catch(err){
+          const preview=String(text||"").slice(0,160).replace(/\s+/g," ").trim();
+          if(live(t))setBal({data:{error:err.message+" | preview: "+preview},loading:false});
+        }
+      })
+      .catch(err=>{if(live(t))setBal({data:{error:String(err.message||err)},loading:false});})
+      .finally(()=>end(t,"bal"));
+  };
     const c=getC(t,"tenk"); if(c){setTenk(c);return;}
     setTenk({result:null,verdict:null,loading:true,error:null});
     if(!begin(t,"tenk"))return;
@@ -507,6 +576,7 @@ export default function App() {
     if(t===ticker){setTab("overview");return;}
     setTicker(t);setTab("overview");
     setHist({rows:null,loading:false});
+    setBal({data:null,loading:false});
     setTenk({result:null,verdict:null,loading:false,error:null});
     setNews({result:null,loading:false,error:null});
     setMgmt({mgmt:null,loading:false});
@@ -516,6 +586,7 @@ export default function App() {
   useEffect(()=>{
     if(!ticker)return;
     if(tab==="history"&&hist.rows===null&&!hist.loading)fetchHist(ticker);
+    else if(tab==="balance"&&bal.data===null&&!bal.loading)fetchBal(ticker);
     else if(tab==="tenk"&&tenk.result===null&&!tenk.loading&&!tenk.error)fetchTenk(ticker);
     else if(tab==="news"&&news.result===null&&!news.loading&&!news.error)fetchNews(ticker);
     else if(tab==="management"&&mgmt.mgmt===null&&!mgmt.loading)fetchMgmt(ticker);
@@ -556,6 +627,7 @@ export default function App() {
         </div>}
         {ticker&&tab==="overview"&&<OverviewTab ticker={ticker} d={ov} onRetry={()=>fetchOverview(ticker)}/>}
         {ticker&&tab==="history"&&<HistoryTab ticker={ticker} d={hist} onRetry={()=>fetchHist(ticker)}/>}
+        {ticker&&tab==="balance"&&<BalanceTab ticker={ticker} d={bal} onRetry={()=>fetchBal(ticker)}/>}
         {ticker&&tab==="tenk"&&<TenKTab ticker={ticker} d={tenk} onRetry={()=>fetchTenk(ticker)}/>}
         {ticker&&tab==="news"&&<NewsTab ticker={ticker} d={news} onRetry={()=>fetchNews(ticker)}/>}
         {ticker&&tab==="management"&&<MgmtTab ticker={ticker} d={mgmt} onRetry={()=>fetchMgmt(ticker)}/>}
