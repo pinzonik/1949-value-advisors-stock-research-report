@@ -347,29 +347,52 @@ export default function App() {
   const begin = (t, k) => { const f = t + ":" + k; if (inFlight.current[f]) return false; inFlight.current[f] = true; return true; };
   const end = (t, k) => { delete inFlight.current[t + ":" + k]; };
 
-  // ONE merged call: overview + history + balance sheet
+  // ONE merged call using delimiters — avoids JSON escaping issues with prose
   const fetchCore = t => {
     const cached = getC(t, "core");
     if (cached) { setCore(cached); return; }
     setCore({ loading: true, error: null, overview: null, history: null, balance: null });
     if (!begin(t, "core")) return;
-    const prompt = "For stock ticker " + t + ", return a JSON object with exactly these 4 keys:\n" +
-      "1. overview: string starting with EXACTLY these 8 lines then a blank line:\nValuation: N\nFree Cash Flow: N\nReturns on Capital: N\nCapital Structure: N\nManagement: N\nMoat: N\nCatalysts: N\nOverall: N\nVERDICT: Undervalued\nThen sections **Overview** **Valuation & Moat** **Bottom Line**. Use 1949 value investing criteria: margin of safety, FCF quality, ROIC, moat durability, management quality.\n" +
-      "2. history: array of last 10 years newest first [{year,revenue,netIncome,eps,fcf,roic}]\n" +
-      "3. balance: {metrics:{totalAssets,totalDebt,netCash,netCashPositive,currentRatio,debtEquity,bookValuePerShare},rows:[last 5 years newest first {year,totalAssets,totalLiabilities,shareholderEquity,totalDebt,cashEquiv,currentRatio}]}\n" +
-      "4. management: array of top 4 current executives [{name,title,tenure,ownership,background,assessment}]\n" +
-      "Return ONLY raw JSON. No backticks. No markdown outside the overview text.";
+    const prompt = "Analyze " + t + " using 1949 value investing criteria (margin of safety, FCF quality, ROIC, moat, management). Output EXACTLY in this format with the delimiters on their own lines:\n\n===OVERVIEW===\nValuation: N\nFree Cash Flow: N\nReturns on Capital: N\nCapital Structure: N\nManagement: N\nMoat: N\nCatalysts: N\nOverall: N\nVERDICT: Fairly Valued\n\n**Overview**\n(2-3 sentences)\n\n**Valuation & Moat**\n(2-3 sentences)\n\n**Bottom Line**\n(1-2 sentences)\n\n===HISTORY===\n[{year:2024,revenue:X,netIncome:X,eps:X,fcf:X,roic:X}]\n(10 years newest first, no backticks)\n\n===BALANCE===\n{metrics:{totalAssets:X,totalDebt:X,netCash:X,netCashPositive:true,currentRatio:X,debtEquity:X,bookValuePerShare:X},rows:[{year:2024,totalAssets:X,totalLiabilities:X,shareholderEquity:X,totalDebt:X,cashEquiv:X,currentRatio:X}]}\n(5 years newest first, no backticks)\n\n===MANAGEMENT===\n[{name:X,title:X,tenure:X,ownership:X,background:X,assessment:X}]\n(top 4 executives, no backticks)";
     callAI([{ role: "user", content: prompt }], 2200)
       .then(text => {
         try {
-          const c = cleanJSON(text);
-          const s = c.indexOf("{"), e = c.lastIndexOf("}");
-          if (s < 0 || e < 0) throw new Error("No JSON found");
-          const o = JSON.parse(c.slice(s, e + 1));
-          if (!o.overview) throw new Error("Missing overview");
-          const n = { loading: false, error: null, overview: o.overview, history: Array.isArray(o.history) ? o.history : null, balance: o.balance || null, management: Array.isArray(o.management) ? o.management : null };
+          const sec = function(key) {
+            const start = text.indexOf("===" + key + "===");
+            if (start < 0) return "";
+            const after = text.indexOf("\n", start) + 1;
+            const end = text.indexOf("===", after);
+            return end < 0 ? text.slice(after).trim() : text.slice(after, end).trim();
+          };
+          const ovText = sec("OVERVIEW");
+          if (!ovText) throw new Error("No OVERVIEW section found");
+          // Parse history JSON
+          let histRows = null;
+          try {
+            const hRaw = cleanJSON(sec("HISTORY"));
+            const hs = hRaw.indexOf("["), he = hRaw.lastIndexOf("]");
+            if (hs >= 0 && he > hs) histRows = JSON.parse(hRaw.slice(hs, he + 1));
+          } catch(e) { histRows = null; }
+          // Parse balance JSON
+          let balData = null;
+          try {
+            const bRaw = cleanJSON(sec("BALANCE"));
+            const bs = bRaw.indexOf("{"), be = bRaw.lastIndexOf("}");
+            if (bs >= 0 && be > bs) balData = JSON.parse(bRaw.slice(bs, be + 1));
+          } catch(e) { balData = null; }
+          // Parse management JSON
+          let mgmtData = null;
+          try {
+            const mRaw = cleanJSON(sec("MANAGEMENT"));
+            const ms = mRaw.indexOf("["), me = mRaw.lastIndexOf("]");
+            if (ms >= 0 && me > ms) mgmtData = JSON.parse(mRaw.slice(ms, me + 1));
+          } catch(e) { mgmtData = null; }
+          const n = { loading: false, error: null, overview: ovText, history: histRows, balance: balData, management: mgmtData };
           putC(t, "core", n);
-          if (live(t)) { setCore(n); if (n.management) { const mn = {mgmt: n.management, loading: false}; putC(t, "mgmt", mn); setMgmt(mn); } }
+          if (live(t)) {
+            setCore(n);
+            if (mgmtData) { const mn = { mgmt: mgmtData, loading: false }; putC(t, "mgmt", mn); setMgmt(mn); }
+          }
         } catch (err) {
           if (live(t)) setCore({ loading: false, error: err.message + " | raw: " + text.slice(0, 200), overview: null, history: null, balance: null });
         }
