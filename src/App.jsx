@@ -516,7 +516,7 @@ export default function App() {
     const c=getC(t,"mgmt"); if(c){setMgmt(c);return;}
     setMgmt({mgmt:null,loading:true});
     if(!begin(t,"mgmt"))return;
-    callAISearch([{role:"user",content:"Who are the current CEO, CFO, and top 3 executives of "+t+" as of 2026? Return ONLY a JSON array. No prose, no explanation. Format: [{"name":"Full Name","title":"Title","tenure":"X yrs","ownership":"X%","background":"1 sentence","assessment":"1 sentence 1949 view"}]"}],700)
+    callAISearch([{role:"user",content:"Current CEO, CFO, and top executives of "+t+" as of 2026. Return ONLY a raw JSON array, no prose. Fields per object: name, title, tenure, ownership, background, assessment."}],700)
       .then(text=>{
         let c=cleanJSON(text);
         if(!c.startsWith("["))c=c.slice(c.indexOf("["));
