@@ -64,9 +64,14 @@ function verdict(t) {
 function scoreColor(s) { return s==null?BRD:s>=8?GRN:s>=6?BLU:s>=4?AMB:RED; }
 function scoreBg(s) { return s==null?OFF:s>=8?GRNB:s>=6?BLUB:s>=4?AMBB:REDB; }
 
-const BT3=String.fromCharCode(96,96,96);
-const BT1=String.fromCharCode(96);
-const cleanJSON = t => t.replace(new RegExp(BT3+"json","gi"),"").replace(new RegExp(BT3,"g"),"").replace(new RegExp(BT1,"g"),"").trim();
+function cleanJSON(t){
+  if(!t)return "";
+  var s=t;
+  // Strip all backtick chars (char code 96) and json fence labels
+  s=s.split("").filter(function(c){return c.charCodeAt(0)!==96;}).join("");
+  s=s.replace(/json\s*/gi,"").trim();
+  return s;
+}
 
 function Box({ children, pad=24, mb=20, style={} }) {
   return <div style={{ background:WHT, border:"1px solid "+BRD, borderRadius:12, padding:pad, marginBottom:mb, boxShadow:"0 1px 4px rgba(11,31,58,0.06)", ...style }}>{children}</div>;
@@ -516,14 +521,18 @@ export default function App() {
     const c=getC(t,"mgmt"); if(c){setMgmt(c);return;}
     setMgmt({mgmt:null,loading:true});
     if(!begin(t,"mgmt"))return;
-    callAISearch([{role:"user",content:"Current CEO, CFO, and top executives of "+t+" as of 2026. Return ONLY a raw JSON array, no prose. Fields per object: name, title, tenure, ownership, background, assessment."}],700)
+    callAISearch([{role:"user",content:"List the current executives of "+t+" (CEO, CFO, COO, etc) as of 2026. For each person write one line: NAME | TITLE | TENURE | OWNERSHIP | BACKGROUND | ASSESSMENT. No JSON, just pipe-separated lines."}],500)
       .then(text=>{
-        let c=cleanJSON(text);
-        if(!c.startsWith("["))c=c.slice(c.indexOf("["));
-        const e=c.lastIndexOf("]");
-        if(e<0){if(live(t))setMgmt({mgmt:{error:"No JSON returned"},loading:false});return;}
-        try{ const p=JSON.parse(c.slice(0,e+1)); const v=Array.isArray(p)&&p.length?p:{error:"Empty"}; const n={mgmt:v,loading:false}; if(Array.isArray(v))putC(t,"mgmt",n); if(live(t))setMgmt(n); }
-        catch(e2){ if(live(t))setMgmt({mgmt:{error:e2.message},loading:false}); }
+        try{
+          var lines=text.split("\n").map(function(l){return l.trim();}).filter(function(l){return l.indexOf("|")>-1;});
+          var parsed=lines.map(function(l){
+            var parts=l.split("|").map(function(p){return p.trim();});
+            return {name:parts[0]||"",title:parts[1]||"",tenure:parts[2]||"",ownership:parts[3]||"",background:parts[4]||"",assessment:parts[5]||""};
+          }).filter(function(p){return p.name&&p.title;});
+          if(!parsed.length)throw new Error("No data");
+          var n={mgmt:parsed,loading:false};
+          putC(t,"mgmt",n);if(live(t))setMgmt(n);
+        }catch(e2){if(live(t))setMgmt({mgmt:{error:"Could not parse: "+String(e2.message)},loading:false});}
       })
       .catch(e=>{if(live(t))setMgmt({mgmt:{error:String(e)},loading:false});})
       .finally(()=>end(t,"mgmt"));
