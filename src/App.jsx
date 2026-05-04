@@ -354,7 +354,7 @@ export default function App() {
     setCore({ loading: true, error: null, overview: null, history: null, balance: null });
     if (!begin(t, "core")) return;
     const prompt = "For stock ticker " + t + ", return a JSON object with exactly these 4 keys:\n" +
-      "1. overview: research note with scorecard integers 1-10 (each on own line: Valuation: 7), then VERDICT: Undervalued|Fairly Valued|Overvalued, then sections **Overview** **Valuation & Moat** **Bottom Line**\n" +
+      "1. overview: string starting with EXACTLY these 8 lines then a blank line:\nValuation: N\nFree Cash Flow: N\nReturns on Capital: N\nCapital Structure: N\nManagement: N\nMoat: N\nCatalysts: N\nOverall: N\nVERDICT: Undervalued\nThen sections **Overview** **Valuation & Moat** **Bottom Line**. Use 1949 value investing criteria: margin of safety, FCF quality, ROIC, moat durability, management quality.\n" +
       "2. history: array of last 10 years newest first [{year,revenue,netIncome,eps,fcf,roic}]\n" +
       "3. balance: {metrics:{totalAssets,totalDebt,netCash,netCashPositive,currentRatio,debtEquity,bookValuePerShare},rows:[last 5 years newest first {year,totalAssets,totalLiabilities,shareholderEquity,totalDebt,cashEquiv,currentRatio}]}\n" +
       "4. management: array of top 4 current executives [{name,title,tenure,ownership,background,assessment}]\n" +
